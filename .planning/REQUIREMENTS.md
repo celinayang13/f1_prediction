@@ -63,26 +63,28 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DATA-01 | — | Pending |
-| DATA-02 | — | Pending |
-| DATA-03 | — | Pending |
-| DATA-04 | — | Pending |
-| PRERACE-01 | — | Pending |
-| PRERACE-02 | — | Pending |
-| PRERACE-03 | — | Pending |
-| INRACE-01 | — | Pending |
-| INRACE-02 | — | Pending |
-| INRACE-03 | — | Pending |
-| DASH-01 | — | Pending |
-| DASH-02 | — | Pending |
-| DASH-03 | — | Pending |
-| DASH-04 | — | Pending |
+| DATA-01 | Phase 1 | Pending |
+| DATA-02 | Phase 1 | Pending |
+| DATA-03 | Phase 1 | Pending |
+| DATA-04 | Phase 1 | Pending |
+| PRERACE-01 | Phase 2 | Pending |
+| PRERACE-02 | Phase 2 | Pending |
+| PRERACE-03 | Phase 2 | Pending |
+| INRACE-01 | Phase 2 | Pending |
+| INRACE-02 | Phase 2 | Pending |
+| INRACE-03 | Phase 2 | Pending |
+| DASH-01 | Phase 3 | Pending |
+| DASH-02 | Phase 3 | Pending |
+| DASH-03 | Phase 3 | Pending |
+| DASH-04 | Phase 3 | Pending |
 
 **Coverage:**
 - v1 requirements: 14 total
-- Mapped to phases: 0 (updated during roadmap creation)
-- Unmapped: 14 ⚠️
+- Mapped to phases: 14 (Phases 1–3)
+- Unmapped: 0 ✓
+
+Note: Phase 4 (Live Race Integration) is a system validation phase. All v1 requirements are satisfied by Phases 1–3; Phase 4 exercises the end-to-end runtime path that cannot be tested with historical data alone.
 
 ---
 *Requirements defined: 2026-06-16*
-*Last updated: 2026-06-16 after initial definition*
+*Last updated: 2026-06-16 — traceability mapped after roadmap creation*

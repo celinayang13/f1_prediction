@@ -49,10 +49,12 @@ Show accurate, live-updating win probabilities for every driver during an F1 rac
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| OpenF1 as sole data source | Free, real-time capable, covers 2022+ well | — Pending |
+| FastF1 (2022) + OpenF1 (2023–2025 + live) | OpenF1 only covers 2023+; FastF1 fills 2022 gap; OpenF1 is the only live race-day option | — Pending |
 | 2022–2025 training window | Ground-effect era = consistent car behavior, most predictive for current season | — Pending |
 | Win probability distribution (not single pick) | More informative, captures uncertainty, better for dashboard visualization | — Pending |
+| XGBoost + Streamlit over LightGBM + Dash | User preference; widely known ecosystem, st.rerun() sufficient for lap-by-lap refresh cadence | — Pending |
 | Local deployment first | Fastest path to a working tool; hosting added later if wanted | — Pending |
+| Multinomial model framing (not 20 binary classifiers) | 1:19 class imbalance; single softmax over all drivers is the correct formulation | — Pending |
 
 ## Evolution
 
