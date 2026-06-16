@@ -1,0 +1,26 @@
+# SQLite database files
+*.db
+*.db-wal
+*.db-shm
+data/f1.db*
+
+# FastF1 cache (large binary files — do not commit)
+data/cache/**
+!data/cache/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Testing
+.pytest_cache/
+
+# Virtual environment
+.venv/
+
+# Build artifacts
+*.egg-info/
+dist/
+build/

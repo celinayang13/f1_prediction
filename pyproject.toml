@@ -1,0 +1,33 @@
+[project]
+name = "f1-prediction"
+version = "0.1.0"
+description = "F1 race winner prediction system with live win probability updates"
+requires-python = ">=3.11"
+dependencies = [
+    "fastf1==3.8.1",
+    "pandas==2.3.3",
+    "numpy==2.4.3",
+    "apscheduler==3.11.2",
+    "httpx==0.28.1",
+    "sqlalchemy==2.0.51",
+    "tenacity==9.1.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.4",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "slow: tests that hit FastF1 cache/network",
+]
