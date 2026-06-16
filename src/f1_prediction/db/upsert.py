@@ -57,6 +57,28 @@ def insert_or_skip_session(engine: Engine, session_row: dict) -> bool:
     return True
 
 
+def session_exists(engine: Engine, session_key: int) -> bool:
+    """
+    Return True if a row with the given session_key exists in raw_sessions.
+
+    Extracted from insert_or_skip_session so loaders can early-exit before
+    fetching expensive upstream data (D-11 resumability).
+
+    Security: uses parameterized query — no f-string SQL (T-02-05).
+
+    Args:
+        engine: SQLAlchemy Engine.
+        session_key: The session key to check.
+
+    Returns:
+        True if the session exists; False otherwise.
+    """
+    check_sql = text("SELECT 1 FROM raw_sessions WHERE session_key = :sk")
+    with engine.connect() as conn:
+        row = conn.execute(check_sql, {"sk": session_key}).fetchone()
+    return row is not None
+
+
 def bulk_insert_rows(engine: Engine, table_name: str, rows: list[dict]) -> int:
     """
     Insert a list of row dicts into the given table using pandas bulk insert.
