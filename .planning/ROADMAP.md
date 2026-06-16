@@ -36,14 +36,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Tyre compound and age per driver per stint are stored and joinable to lap rows
   5. The feature builder produces a populated `features` table with one row per (session_key, driver_number, lap_number) covering all historical sessions
 
-**Plans:** 3 plansPlans:
+**Plans:** 2/3 plans executed
 **Wave 1**
 
 - [x] 01-01-PLAN.md — Walking Skeleton: scaffold, ORM/WAL engine, FastF1 single-race ingest, E2E pytest
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 01-02-PLAN.md — Full historical backfill: widen schema, OpenF1 client, FastF1+OpenF1 loaders for all 5 raw tables + weather
+- [x] 01-02-PLAN.md — Full historical backfill: widen schema, OpenF1 client, FastF1+OpenF1 loaders for all 5 raw tables + weather
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -103,7 +103,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Data & Features | 1/3 | In progress | Plan 01 complete 2026-06-16 |
+| 1. Data & Features | 2/3 | In Progress|  |
 | 2. Model Training | 0/TBD | Not started | - |
 | 3. Prediction Pipeline & Dashboard | 0/TBD | Not started | - |
 | 4. Live Race Integration | 0/TBD | Not started | - |

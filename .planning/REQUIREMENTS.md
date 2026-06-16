@@ -7,10 +7,10 @@
 
 ### Data Layer
 
-- [ ] **DATA-01**: System fetches and stores all historical F1 race, qualifying, and practice sessions from OpenF1 API for the 2022–2025 seasons
-- [ ] **DATA-02**: System stores weather conditions (wet/dry/mixed) per session
+- [x] **DATA-01**: System fetches and stores all historical F1 race, qualifying, and practice sessions from OpenF1 API for the 2022–2025 seasons
+- [x] **DATA-02**: System stores weather conditions (wet/dry/mixed) per session
 - [ ] **DATA-03**: System polls OpenF1 live during a race weekend and stores lap-by-lap position, interval, and lap time data
-- [ ] **DATA-04**: System stores tyre compound and age per driver per stint (required for in-race model)
+- [x] **DATA-04**: System stores tyre compound and age per driver per stint (required for in-race model)
 
 ### Pre-race Model
 
@@ -64,9 +64,9 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | DATA-01 | Phase 1 | In Progress (Plan 01: 2022 single-race ingest path proven; Plan 02 widens to all seasons) |
-| DATA-02 | Phase 1 | Pending |
+| DATA-02 | Phase 1 | Complete |
 | DATA-03 | Phase 1 | Pending |
-| DATA-04 | Phase 1 | Pending |
+| DATA-04 | Phase 1 | Complete |
 | PRERACE-01 | Phase 2 | Pending |
 | PRERACE-02 | Phase 2 | Pending |
 | PRERACE-03 | Phase 2 | Pending |
@@ -79,6 +79,7 @@
 | DASH-04 | Phase 3 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 14 total
 - Mapped to phases: 14 (Phases 1–3)
 - Unmapped: 0 ✓

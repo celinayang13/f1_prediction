@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 01 Plan 01 complete — walking skeleton proven
-last_updated: "2026-06-16T19:15:00Z"
-last_activity: 2026-06-16 -- Phase 01 Plan 01 executed (3/3 tasks, 3 tests passing)
+stopped_at: Phase 01 Plan 02 complete — full ingest pipeline proven
+last_updated: "2026-06-16T19:28:37Z"
+last_activity: 2026-06-16 -- Phase 01 Plan 02 executed (18 tests passing, 6 raw tables populated)
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
-  percent: 8
+  completed_plans: 2
+  percent: 0
 ---
 
 # Project State
@@ -26,30 +26,30 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 01 (data-features) — EXECUTING
-Plan: 2 of 3 (Plan 01 complete)
-Status: Executing Phase 01
-Last activity: 2026-06-16 -- Phase 01 Plan 01 executed (walking skeleton proven, 3 tests green)
+Plan: 3 of 3 (Plan 02 complete)
+Status: Ready to execute Plan 03
+Last activity: 2026-06-16 -- Phase 01 Plan 02 executed (18 tests passing, 6 raw tables, full ingest pipeline)
 
-Progress: [█░░░░░░░░░] 8%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 1
-- Average duration: ~9 min
-- Total execution time: ~9 min
+- Total plans completed: 2
+- Average duration: ~8 min
+- Total execution time: ~17 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-data-features | 1/3 | ~9 min | ~9 min |
+| 01-data-features | 2/3 | ~17 min | ~8.5 min |
 
 **Recent Trend:**
 
-- Last 5 plans: 01-01 (9 min)
-- Trend: —
+- Last 5 plans: 01-01 (9 min), 01-02 (8 min)
+- Trend: stable
 
 *Updated after each plan completion*
 
@@ -67,6 +67,10 @@ Recent decisions affecting current work:
 - 01-01: session_key synthesis for FastF1 2022 data: year*100_000 + round*100 + session_type_code (1-7)
 - 01-01: WAL mode via SQLAlchemy event listener on connect — no per-query PRAGMA needed
 - 01-01: System Python 3.11 used (venv has stub dist-info directories without source files)
+- 01-02: RateLimitedError on HTTP 429 inside _fetch body — cleaner than retry_if_result predicate for tenacity
+- 01-02: FastF1 stints derived from consecutive same-Compound laps; tyre_age_at_start = TyreLife-1 (1-based)
+- 01-02: Stints/pits/positions ingested only for race-pace sessions (R, S); Q/FP2/FP3 get laps+weather only
+- 01-02: MockTransport uses httpx.AsyncBaseTransport for async OpenF1Client test coverage
 
 ### Pending Todos
 
@@ -84,6 +88,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-06-16T19:15:00Z
-Stopped at: Phase 01 Plan 01 complete — walking skeleton proven
-Resume file: .planning/phases/01-data-features/01-02-PLAN.md
+Last session: 2026-06-16T19:28:37Z
+Stopped at: Phase 01 Plan 02 complete — full ingest pipeline proven
+Resume file: .planning/phases/01-data-features/01-03-PLAN.md
