@@ -1,0 +1,15 @@
+[
+  {
+    "session_key": 9158,
+    "session_name": "Race",
+    "session_type": "Race",
+    "year": 2024,
+    "meeting_key": 1229,
+    "circuit_key": 3,
+    "location": "Sakhir",
+    "country_name": "Bahrain",
+    "date_start": "2024-03-02T15:00:00+00:00",
+    "date_end": "2024-03-02T17:05:00+00:00",
+    "gmt_offset": "+03:00"
+  }
+]
