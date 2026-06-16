@@ -1,15 +1,34 @@
 """
-Backfill script — load one F1 session from FastF1 into the local SQLite database.
+Backfill script — load F1 sessions from FastF1 (2022) or OpenF1 (2023+)
+into the local SQLite database.
 
 Usage:
-    python scripts/backfill.py --year 2022 --round 1
-    python scripts/backfill.py --year 2022 --round 1 --identifier Q
-    python scripts/backfill.py --year 2022 --round 1 --identifier FP2
+    # Backfill 2022 Round 1 Race via FastF1:
+    python scripts/backfill.py --years 2022 --rounds 1 --identifiers R
 
-This script is the CLI entrypoint for the Phase 1 walking skeleton. It loads
-a single session from FastF1 and stores raw lap data in data/f1.db.
+    # Backfill 2024 Round 1 Race via OpenF1:
+    python scripts/backfill.py --years 2024 --rounds 1 --identifiers R
 
-Plan 02 will expand this script to iterate over all sessions in a season.
+    # Multi-year, multiple rounds:
+    python scripts/backfill.py --years 2022 2023 --rounds 1 2 3
+
+    # Full season (all rounds, all default identifiers):
+    python scripts/backfill.py --years 2022
+
+    # Skip feature builder at end (for raw data only):
+    python scripts/backfill.py --years 2022 --skip-features
+
+Routing:
+  year <= 2022  →  FastF1 loader (fastf1_loader.load_year)
+  year >= 2023  →  OpenF1 loader (openf1_loader.load_openf1_year)
+
+Resumability (D-11):
+  Sessions already in raw_sessions are skipped automatically by both loaders.
+  Re-running backfill after interruption is safe.
+
+Exit codes:
+  0: all sessions loaded without exception
+  1: one or more sessions raised an exception (logged; backfill continues)
 """
 from __future__ import annotations
 
@@ -19,51 +38,117 @@ import logging
 import sys
 from pathlib import Path
 
-# Ensure the src/ directory is on the path so f1_prediction.* imports work
-# when running as `python scripts/backfill.py` from the project root.
+# Ensure src/ is on the path for non-installed runs
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from f1_prediction.ingest.fastf1_loader import load_session  # noqa: E402
+from f1_prediction.ingest import fastf1_loader, openf1_loader  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 
 def main() -> None:
     """CLI entrypoint for the backfill script."""
     parser = argparse.ArgumentParser(
-        description="Load one F1 session from FastF1 into the local SQLite database.",
+        description=(
+            "Backfill F1 session data into the local SQLite database. "
+            "Routes year <= 2022 → FastF1; year >= 2023 → OpenF1."
+        ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        "--year",
+        "--years",
         type=int,
+        nargs="+",
         required=True,
-        help="Season year (must be <= 2022 for FastF1; use OpenF1 for 2023+)",
+        help=(
+            "Season year(s) to backfill. "
+            "Accepts multiple values: --years 2022 2023 2024. "
+            "year <= 2022 uses FastF1; year >= 2023 uses OpenF1."
+        ),
     )
     parser.add_argument(
-        "--round",
+        "--rounds",
         type=int,
-        required=True,
-        dest="round_number",
-        help="Round number in the season (1-based)",
+        nargs="+",
+        default=None,
+        help=(
+            "Round number(s) to load. If omitted, all rounds in the season are loaded. "
+            "For OpenF1 years, rounds are matched against meeting_key."
+        ),
     )
     parser.add_argument(
-        "--identifier",
+        "--identifiers",
         type=str,
-        default="R",
-        help="Session identifier: R=Race, Q=Qualifying, FP2, FP3, S=Sprint, SS=Sprint Shootout",
+        nargs="+",
+        default=["FP2", "FP3", "Q", "R", "S", "SS"],
+        help=(
+            "Session identifier(s) to load. "
+            "Defaults: FP2 FP3 Q R S SS (FP1 is intentionally excluded per D-06). "
+            "Example: --identifiers R Q"
+        ),
+    )
+    parser.add_argument(
+        "--skip-features",
+        action="store_true",
+        default=False,
+        help=(
+            "Skip the feature builder step after backfill. "
+            "No-op in Phase 1 (feature builder not yet implemented). "
+            "Plan 03 will wire the feature builder call."
+        ),
     )
 
     args = parser.parse_args()
 
-    # Configure root logger to INFO with a simple timestamp format
+    # Configure root logger
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%S",
     )
 
-    result = load_session(args.year, args.round_number, args.identifier)
-    print(json.dumps(result, indent=2))
-    sys.exit(0)
+    had_error = False
+
+    for year in args.years:
+        logger.info("Starting backfill for year=%d", year)
+
+        if year <= 2022:
+            # FastF1 path
+            results = fastf1_loader.load_year(
+                year,
+                rounds=args.rounds,
+                identifiers=args.identifiers,
+            )
+        else:
+            # OpenF1 path (year >= 2023)
+            results = openf1_loader.load_openf1_year(
+                year,
+                rounds=args.rounds,
+                identifiers=args.identifiers,
+            )
+
+        for r in results:
+            if r.get("error"):
+                had_error = True
+
+            # Emit one JSON line per session to stdout (greppable)
+            output = {
+                "year": r.get("year", year),
+                "session_key": r.get("session_key"),
+                "skipped": r.get("skipped", False),
+                "error": r.get("error", False),
+                "laps_inserted": r.get("laps_inserted", 0),
+                "stints_inserted": r.get("stints_inserted", 0),
+                "pits_inserted": r.get("pits_inserted", 0),
+                "positions_inserted": r.get("positions_inserted", 0),
+                "weather_inserted": r.get("weather_inserted", 0),
+            }
+            print(json.dumps(output))
+
+    if args.skip_features:
+        logger.info("--skip-features specified; skipping feature builder (no-op in Phase 1)")
+
+    sys.exit(1 if had_error else 0)
 
 
 if __name__ == "__main__":

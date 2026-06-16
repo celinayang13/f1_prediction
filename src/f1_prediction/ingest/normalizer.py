@@ -2,8 +2,8 @@
 FastF1 → OpenF1-schema normalizer.
 
 Converts FastF1 Session objects and Laps DataFrames to the canonical
-OpenF1-compatible dict format expected by the raw_sessions and raw_laps
-ORM models.
+OpenF1-compatible dict format expected by the raw_sessions, raw_laps,
+raw_stints, raw_pit_stops, raw_positions, and raw_weather ORM models.
 
 ## session_key Synthesis Scheme (FastF1 / 2022 data)
 
@@ -36,7 +36,7 @@ to join FastF1 and OpenF1 data without key conflicts.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 
 import numpy as np
 import pandas as pd
@@ -304,3 +304,395 @@ def normalize_fastf1_laps(
         "Normalized %d laps for session_key=%d", len(rows), session_key
     )
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Weather classification (DATA-02)
+# ---------------------------------------------------------------------------
+
+def classify_weather(
+    weather_rows: Union[list[dict], "pd.DataFrame"],
+) -> dict:
+    """
+    Classify session weather as 'dry', 'wet', or 'mixed' from rainfall observations.
+
+    Accepts either:
+      - list[dict]: OpenF1 /v1/weather rows with a 'rainfall' field (0 or 1)
+      - pd.DataFrame: FastF1 session.weather_data with 'Rainfall' boolean column
+
+    Classification rule (DATA-02):
+      - total == 0 → 'dry' (no observations defaults to dry)
+      - count == 0 → 'dry'
+      - count / total >= 0.5 → 'wet'
+      - 0 < count / total < 0.5 → 'mixed'
+
+    Args:
+        weather_rows: Weather observations from either OpenF1 or FastF1 source.
+
+    Returns:
+        Dict with keys:
+          wet_dry_mixed (str): 'dry', 'wet', or 'mixed'
+          air_temp_c (float | None): median air temperature
+          track_temp_c (float | None): median track temperature
+          humidity_pct (float | None): median humidity
+          rainfall_flag_count (int): number of observations with rainfall
+          total_observation_count (int): total number of observations
+    """
+    # Normalize to a list of dicts with lowercase 'rainfall' key
+    if isinstance(weather_rows, pd.DataFrame):
+        if weather_rows.empty:
+            rows_norm: list[dict] = []
+        else:
+            # FastF1: 'Rainfall' boolean column; also 'AirTemp', 'TrackTemp', 'Humidity'
+            rows_norm = []
+            for _, row in weather_rows.iterrows():
+                rows_norm.append({
+                    "rainfall": int(bool(row.get("Rainfall", False))),
+                    "air_temperature": row.get("AirTemp"),
+                    "track_temperature": row.get("TrackTemp"),
+                    "humidity": row.get("Humidity"),
+                })
+    else:
+        rows_norm = weather_rows  # already list[dict] from OpenF1
+
+    total = len(rows_norm)
+    if total == 0:
+        return {
+            "wet_dry_mixed": "dry",
+            "air_temp_c": None,
+            "track_temp_c": None,
+            "humidity_pct": None,
+            "rainfall_flag_count": 0,
+            "total_observation_count": 0,
+        }
+
+    # Count rainfall observations (handle both int 0/1 and bool)
+    rainfall_count = sum(
+        1 for r in rows_norm if r.get("rainfall", 0) not in (0, False, None)
+    )
+
+    if rainfall_count == 0:
+        wet_dry_mixed = "dry"
+    elif rainfall_count / total >= 0.5:
+        wet_dry_mixed = "wet"
+    else:
+        wet_dry_mixed = "mixed"
+
+    # Aggregate temperatures as medians
+    def _median_or_none(values):
+        clean = [v for v in values if v is not None and not (isinstance(v, float) and np.isnan(v))]
+        if not clean:
+            return None
+        return float(np.median(clean))
+
+    air_temps = [r.get("air_temperature") for r in rows_norm]
+    track_temps = [r.get("track_temperature") for r in rows_norm]
+    humidities = [r.get("humidity") for r in rows_norm]
+
+    return {
+        "wet_dry_mixed": wet_dry_mixed,
+        "air_temp_c": _median_or_none(air_temps),
+        "track_temp_c": _median_or_none(track_temps),
+        "humidity_pct": _median_or_none(humidities),
+        "rainfall_flag_count": rainfall_count,
+        "total_observation_count": total,
+    }
+
+
+# ---------------------------------------------------------------------------
+# FastF1 stint normalization
+# ---------------------------------------------------------------------------
+
+def normalize_fastf1_stints(
+    session: "fastf1.core.Session",
+    *,
+    session_key: int,
+) -> list[dict]:
+    """
+    Derive stint records from FastF1 session.laps.
+
+    FastF1 does not expose stints as a top-level table. We derive stints
+    by grouping consecutive same-Compound runs per driver from the laps
+    DataFrame.
+
+    Algorithm:
+      - Sort laps by (DriverNumber, LapNumber)
+      - For each driver, iterate laps in order
+      - When Compound changes (or starts), close the previous stint and open new one
+      - tyre_age_at_start = first lap's TyreLife - 1 (TyreLife is 1-based on first lap)
+      - last stint gets lap_end = last lap's LapNumber
+
+    Args:
+        session: Loaded FastF1 Session with session.laps available.
+        session_key: Session key to attach to each stint row.
+
+    Returns:
+        List of dicts matching RawStint column names (excluding 'id').
+    """
+    laps = session.laps
+    if laps is None or len(laps) == 0:
+        return []
+
+    # Only process laps where Compound is known
+    df = laps.copy()
+
+    # DriverNumber may be string; normalize to int
+    if "DriverNumber" not in df.columns:
+        logger.warning("No DriverNumber column in laps — skipping stint derivation")
+        return []
+
+    def _to_int_or_none(val):
+        try:
+            return int(val) if pd.notna(val) else None
+        except (ValueError, TypeError):
+            return None
+
+    df["_dn"] = df["DriverNumber"].apply(_to_int_or_none)
+    df = df.dropna(subset=["_dn"])
+
+    # Get LapNumber and Compound
+    if "LapNumber" not in df.columns or "Compound" not in df.columns:
+        logger.warning("Missing LapNumber or Compound column — skipping stint derivation")
+        return []
+
+    # TyreLife for tyre_age_at_start derivation
+    has_tyre_life = "TyreLife" in df.columns
+
+    df = df.sort_values(["_dn", "LapNumber"])
+
+    stints: list[dict] = []
+
+    for driver_num, group in df.groupby("_dn"):
+        if driver_num is None:
+            continue
+
+        stint_number = 0
+        prev_compound = None
+        stint_start_lap = None
+        stint_tyre_life_at_start = None
+
+        for _, lap_row in group.iterrows():
+            compound = lap_row.get("Compound") if pd.notna(lap_row.get("Compound", pd.NA)) else None
+            lap_num_raw = lap_row.get("LapNumber")
+            lap_num = _to_int_or_none(lap_num_raw)
+            if lap_num is None:
+                continue
+
+            if compound != prev_compound:
+                # Close the previous stint
+                if prev_compound is not None and stint_start_lap is not None:
+                    tyre_age = int(stint_tyre_life_at_start) - 1 if stint_tyre_life_at_start is not None else None
+                    stints.append({
+                        "session_key": session_key,
+                        "driver_number": int(driver_num),
+                        "stint_number": stint_number,
+                        "lap_start": stint_start_lap,
+                        "lap_end": lap_num - 1,
+                        "compound": str(prev_compound),
+                        "tyre_age_at_start": tyre_age,
+                    })
+
+                # Start new stint
+                stint_number += 1
+                stint_start_lap = lap_num
+                prev_compound = compound
+                if has_tyre_life:
+                    tl = lap_row.get("TyreLife")
+                    stint_tyre_life_at_start = float(tl) if pd.notna(tl) else None
+                else:
+                    stint_tyre_life_at_start = None
+            # else: same compound, continue
+        else:
+            # Close the final stint
+            if prev_compound is not None and stint_start_lap is not None:
+                tyre_age = int(stint_tyre_life_at_start) - 1 if stint_tyre_life_at_start is not None else None
+                stints.append({
+                    "session_key": session_key,
+                    "driver_number": int(driver_num),
+                    "stint_number": stint_number,
+                    "lap_start": stint_start_lap,
+                    "lap_end": lap_num,  # last lap seen
+                    "compound": str(prev_compound),
+                    "tyre_age_at_start": tyre_age,
+                })
+
+    logger.info("Derived %d stints for session_key=%d", len(stints), session_key)
+    return stints
+
+
+# ---------------------------------------------------------------------------
+# FastF1 pit stop normalization
+# ---------------------------------------------------------------------------
+
+def normalize_fastf1_pits(
+    session: "fastf1.core.Session",
+    *,
+    session_key: int,
+) -> list[dict]:
+    """
+    Derive pit stop records from FastF1 session.laps.
+
+    FastF1 does not have a dedicated pit stops table. We detect pits from
+    PitOutTime on laps: if a lap has a PitOutTime, a pit stop occurred during
+    the PREVIOUS lap (or at the start of this lap). We use the lap where
+    PitOutTime is non-null as the pit-out lap (lap L), and the stop occurred
+    on lap L-1.
+
+    stop_duration is not available from FastF1 2022 data (NULL per RESEARCH
+    State of the Art). lane_duration is approximated when both PitInTime
+    and PitOutTime are available.
+
+    Args:
+        session: Loaded FastF1 Session with session.laps available.
+        session_key: Session key to attach to each pit stop row.
+
+    Returns:
+        List of dicts matching RawPitStop column names (excluding 'id').
+    """
+    laps = session.laps
+    if laps is None or len(laps) == 0:
+        return []
+
+    df = laps.copy()
+    if "PitOutTime" not in df.columns:
+        return []
+
+    def _to_int_or_none(val):
+        try:
+            return int(val) if pd.notna(val) else None
+        except (ValueError, TypeError):
+            return None
+
+    df["_dn"] = df.get("DriverNumber", pd.Series([None] * len(df), dtype=object)).apply(_to_int_or_none)
+    df["_ln"] = df.get("LapNumber", pd.Series([None] * len(df), dtype=object)).apply(_to_int_or_none)
+
+    has_pit_in = "PitInTime" in df.columns
+    pits: list[dict] = []
+
+    for driver_num, group in df.groupby("_dn"):
+        if driver_num is None:
+            continue
+        group_sorted = group.sort_values("_ln")
+        rows_list = list(group_sorted.iterrows())
+        for idx, (_, lap_row) in enumerate(rows_list):
+            pit_out = lap_row.get("PitOutTime")
+            if pit_out is None or not hasattr(pit_out, "total_seconds"):
+                continue
+            if not pd.notna(pit_out):
+                continue
+
+            # Pit stop occurred before this lap
+            pit_lap_number = (_to_int_or_none(lap_row.get("_ln")) or 1) - 1
+            if pit_lap_number < 1:
+                pit_lap_number = 1
+
+            # Attempt to compute lane_duration from PitInTime of previous lap
+            lane_duration = None
+            if has_pit_in and idx > 0:
+                prev_row = rows_list[idx - 1][1]
+                pit_in = prev_row.get("PitInTime")
+                if pit_in is not None and pd.notna(pit_in) and hasattr(pit_in, "total_seconds"):
+                    try:
+                        lane_duration = float((pit_out - pit_in).total_seconds())
+                    except (TypeError, AttributeError):
+                        lane_duration = None
+
+            pits.append({
+                "session_key": session_key,
+                "driver_number": int(driver_num),
+                "lap_number": pit_lap_number,
+                "lane_duration": lane_duration,
+                "stop_duration": None,  # not available from FastF1 (RESEARCH State of the Art)
+                "date_recorded": None,
+            })
+
+    logger.info("Derived %d pit stops for session_key=%d", len(pits), session_key)
+    return pits
+
+
+# ---------------------------------------------------------------------------
+# FastF1 position normalization
+# ---------------------------------------------------------------------------
+
+def normalize_fastf1_positions(
+    session: "fastf1.core.Session",
+    *,
+    session_key: int,
+) -> list[dict]:
+    """
+    Derive position records from FastF1 session.laps['Position'].
+
+    One row per driver per lap where Position is non-null.
+
+    Args:
+        session: Loaded FastF1 Session with session.laps available.
+        session_key: Session key to attach to each position row.
+
+    Returns:
+        List of dicts matching RawPosition column names (excluding 'id').
+    """
+    laps = session.laps
+    if laps is None or len(laps) == 0:
+        return []
+
+    df = laps.copy()
+    if "Position" not in df.columns:
+        return []
+
+    def _to_int_or_none(val):
+        try:
+            return int(val) if pd.notna(val) else None
+        except (ValueError, TypeError):
+            return None
+
+    positions: list[dict] = []
+    for _, row in df.iterrows():
+        dn = _to_int_or_none(row.get("DriverNumber"))
+        ln = _to_int_or_none(row.get("LapNumber"))
+        pos = _to_int_or_none(row.get("Position"))
+        if dn is None or ln is None or pos is None:
+            continue
+        positions.append({
+            "session_key": session_key,
+            "driver_number": dn,
+            "lap_number": ln,
+            "position": pos,
+            "date_recorded": None,
+        })
+
+    logger.info("Normalized %d positions for session_key=%d", len(positions), session_key)
+    return positions
+
+
+# ---------------------------------------------------------------------------
+# FastF1 weather normalization
+# ---------------------------------------------------------------------------
+
+def normalize_fastf1_weather(
+    session: "fastf1.core.Session",
+    *,
+    session_key: int,
+) -> dict:
+    """
+    Produce a single raw_weather row for a FastF1 session.
+
+    Calls classify_weather() on session.weather_data (FastF1 DataFrame with
+    Rainfall boolean column). Returns a dict ready for bulk_insert_rows into
+    raw_weather with session_key injected.
+
+    Args:
+        session: Loaded FastF1 Session with session.weather_data available.
+        session_key: Session key for the raw_weather row.
+
+    Returns:
+        Single dict matching RawWeather column names.
+    """
+    weather_df = getattr(session, "weather_data", None)
+    if weather_df is None:
+        # No weather data available — default to dry
+        classification = classify_weather([])
+    else:
+        classification = classify_weather(weather_df)
+
+    classification["session_key"] = session_key
+    return classification

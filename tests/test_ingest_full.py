@@ -103,9 +103,9 @@ class TestClassifyWeather:
 # ---------------------------------------------------------------------------
 
 
-class _FixtureMockTransport(httpx.BaseTransport):
+class _FixtureMockTransport(httpx.AsyncBaseTransport):
     """
-    httpx transport that returns fixture JSON responses keyed by URL path.
+    Async httpx transport that returns fixture JSON responses keyed by URL path.
 
     Map: endpoint suffix → fixture filename.
     """
@@ -120,7 +120,7 @@ class _FixtureMockTransport(httpx.BaseTransport):
         "/v1/intervals": "[]",  # empty — not needed for tests
     }
 
-    def handle_request(self, request: httpx.Request) -> httpx.Response:
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
         for suffix, fixture in self.ROUTE_MAP.items():
             if path.endswith(suffix):
