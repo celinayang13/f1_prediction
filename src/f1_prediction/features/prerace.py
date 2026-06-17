@@ -343,6 +343,10 @@ def compute_championship_position(
     Returns:
         Standings rank (1 = championship leader), or None if no prior races.
     """
+    # WR-05: normalise to Python int at function entry so numpy int64 callers
+    # don't create a second dict key alongside the Python int keys built below.
+    driver_number = int(driver_number)
+
     # Get all race sessions in this year up to round_number - 1
     q = text(
         """
