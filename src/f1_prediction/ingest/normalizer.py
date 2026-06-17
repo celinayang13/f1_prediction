@@ -471,12 +471,14 @@ def normalize_fastf1_stints(
         stint_start_lap = None
         stint_tyre_life_at_start = None
 
+        last_valid_lap_num = None  # tracks last non-None lap number seen (CR-01)
         for _, lap_row in group.iterrows():
             compound = lap_row.get("Compound") if pd.notna(lap_row.get("Compound", pd.NA)) else None
             lap_num_raw = lap_row.get("LapNumber")
             lap_num = _to_int_or_none(lap_num_raw)
             if lap_num is None:
                 continue
+            last_valid_lap_num = lap_num  # update tracker after confirming non-None
 
             if compound != prev_compound:
                 # Close the previous stint
@@ -503,15 +505,15 @@ def normalize_fastf1_stints(
                     stint_tyre_life_at_start = None
             # else: same compound, continue
         else:
-            # Close the final stint
-            if prev_compound is not None and stint_start_lap is not None:
+            # Close the final stint — guard against all-null-LapNumber drivers (CR-01)
+            if prev_compound is not None and stint_start_lap is not None and last_valid_lap_num is not None:
                 tyre_age = int(stint_tyre_life_at_start) - 1 if stint_tyre_life_at_start is not None else None
                 stints.append({
                     "session_key": session_key,
                     "driver_number": int(driver_num),
                     "stint_number": stint_number,
                     "lap_start": stint_start_lap,
-                    "lap_end": lap_num,  # last lap seen
+                    "lap_end": last_valid_lap_num,  # use tracked value, not unbound lap_num
                     "compound": str(prev_compound),
                     "tyre_age_at_start": tyre_age,
                 })
