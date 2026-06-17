@@ -15,6 +15,7 @@ import logging
 import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from f1_prediction.db.models import RawSession
@@ -39,22 +40,18 @@ def insert_or_skip_session(engine: Engine, session_row: dict) -> bool:
         True if the row was inserted; False if it already existed.
     """
     sk = session_row["session_key"]
-    # Parameterized query — never f-string SQL (T-01-02)
-    check_sql = text("SELECT 1 FROM raw_sessions WHERE session_key = :sk")
-
-    with engine.connect() as conn:
-        existing = conn.execute(check_sql, {"sk": sk}).fetchone()
-        if existing is not None:
-            logger.debug("Session %d already exists — skipping insert", sk)
-            return False
-
-    # Row does not exist — insert via ORM
+    # WR-01: atomic insert — catch IntegrityError instead of a separate existence
+    # check (which had a TOCTOU race between two separate connection opens).
     with Session(engine) as session:
-        session.add(RawSession(**session_row))
-        session.commit()
-
-    logger.info("Inserted session %d into raw_sessions", sk)
-    return True
+        try:
+            session.add(RawSession(**session_row))
+            session.commit()
+            logger.info("Inserted session %d into raw_sessions", sk)
+            return True
+        except IntegrityError:
+            session.rollback()
+            logger.debug("Session %d already exists (concurrent insert) — skipping", sk)
+            return False
 
 
 def session_exists(engine: Engine, session_key: int) -> bool:
