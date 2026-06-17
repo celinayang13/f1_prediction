@@ -287,12 +287,14 @@ def compute_constructor_pace_delta(
         """
         SELECT AVG(sub.combined_pace) AS avg_delta
         FROM (
-            SELECT (
-                COALESCE(fp.practice_pace_fp2, 0) + COALESCE(fp.practice_pace_fp3, 0)
-            ) / (
-                (CASE WHEN fp.practice_pace_fp2 IS NOT NULL THEN 1 ELSE 0 END) +
-                (CASE WHEN fp.practice_pace_fp3 IS NOT NULL THEN 1 ELSE 0 END)
-            ) AS combined_pace
+            -- WR-03: use conditional average to avoid COALESCE(fp2, 0) substituting 0
+        -- for a missing session, which would bias the average toward zero.
+        SELECT CASE
+            WHEN fp.practice_pace_fp2 IS NOT NULL AND fp.practice_pace_fp3 IS NOT NULL
+                 THEN (fp.practice_pace_fp2 + fp.practice_pace_fp3) / 2.0
+            WHEN fp.practice_pace_fp2 IS NOT NULL THEN fp.practice_pace_fp2
+            ELSE fp.practice_pace_fp3
+        END AS combined_pace
             FROM features_prerace fp
             JOIN raw_sessions rs ON fp.session_key = rs.session_key
             WHERE fp.team_name = :team
