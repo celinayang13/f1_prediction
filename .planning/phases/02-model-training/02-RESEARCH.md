@@ -563,17 +563,19 @@ INRACE_CAT_COLS = ["tyre_compound"]
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **In-race training target label derivation**
    - What we know: `FeaturesInrace` has `position` column (1–20) but not `finish_position`
    - What's unclear: Is `position` on the final lap (max `lap_number` per session/driver) a reliable proxy for race finish? Are retirements (position remaining at last recorded lap) handled correctly?
    - Recommendation: Join `features_inrace` to `features_prerace` on `(session_key, driver_number)` to get `finish_position` as the canonical target. This avoids retirement confusion.
+   - RESOLVED: INNER JOIN to `features_prerace.finish_position` on `(session_key, driver_number)`; drivers missing `finish_position` are excluded via the INNER JOIN (handles retirements cleanly). Implemented in Plan 02-02 Task 1.
 
 2. **Season 2025 test set size**
    - What we know: 2025 has ~24 rounds × 20 drivers = ~480 pre-race rows; ~72K in-race rows
    - What's unclear: How many 2025 rounds were completed and backfilled?
    - Recommendation: The training script should log row counts for train/test sets before fitting. If test_df is empty (2025 data not yet backfilled), log a warning and skip evaluation.
+   - RESOLVED: Guard clause raises `RuntimeError` if `test_df` is empty so empty 2025 sets do not silently pass through. Script logs train/test row counts before fitting. Implemented in Plan 02-01 Task 2.
 
 ---
 

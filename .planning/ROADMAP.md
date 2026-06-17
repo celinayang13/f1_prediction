@@ -16,7 +16,7 @@ Four phases take the project from an empty SQLite database to a live dashboard s
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Data & Features** - Historical backfill, live poller, and feature table populated with engineered race features
-- [ ] **Phase 2: Model Training** - Pre-race and in-race LightGBM models trained offline and serialized to disk
+- [ ] **Phase 2: Model Training** - Pre-race and in-race XGBoost models trained offline and serialized to disk
 - [ ] **Phase 3: Prediction Pipeline & Dashboard** - Inference wired into the poll loop; Dash dashboard showing live win probabilities
 - [ ] **Phase 4: Live Race Integration** - End-to-end smoke test against a real F1 race weekend session
 
@@ -62,7 +62,17 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. The in-race model is trained on mid-race state features (current positions, gaps to leader, laps remaining, tyre compound and age, pit stop history); the artifact is saved to `data/models/inrace_model.joblib`
   4. Running the in-race model on a replayed historical race lap outputs an updated win probability distribution that reflects lap-by-lap changes
 
-**Plans:** TBD
+**Plans:** 2 plans
+
+Plans:
+
+**Wave 1**
+
+- [ ] 02-01-PLAN.md — Pre-race vertical slice: add xgboost dep, ml/ package, scripts/train.py, pre-race FrozenEstimator calibration + joblib artifact (PRERACE-01/02/03)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 02-02-PLAN.md — In-race vertical slice: load_inrace_df with prerace label join, train_inrace_model, per-(session,lap) softmax, wire into scripts/train.py (INRACE-01/02/03)
 
 ### Phase 3: Prediction Pipeline & Dashboard
 
@@ -104,6 +114,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Data & Features | 3/3 | Complete | 2026-06-17 |
-| 2. Model Training | 0/TBD | Not started | - |
+| 2. Model Training | 0/2 | Planned | - |
 | 3. Prediction Pipeline & Dashboard | 0/TBD | Not started | - |
 | 4. Live Race Integration | 0/TBD | Not started | - |
