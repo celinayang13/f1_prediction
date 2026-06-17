@@ -62,7 +62,9 @@ def _normalize_openf1_session(raw: dict) -> dict:
     return {
         "session_key": int(raw["session_key"]),
         "year": int(raw.get("year", 0)),
-        "round_number": int(raw.get("meeting_key", 0)),  # closest OpenF1 proxy for round
+        # CR-02: use round_number field directly; meeting_key is a large server-assigned
+        # integer (e.g. 1219), not a sequential round number (1, 2, 3, …).
+        "round_number": int(raw.get("round_number") or raw.get("meeting_round_number") or 0),
         "country_name": raw.get("country_name"),
         "circuit_short_name": raw.get("location"),
         "session_type": session_type,
@@ -427,9 +429,12 @@ def load_openf1_year(
             continue
 
         if rounds is not None:
-            meeting_key = sess.get("meeting_key")
-            if meeting_key is not None and int(meeting_key) not in rounds:
-                logger.debug("Skipping meeting_key=%s (not in rounds filter)", meeting_key)
+            # CR-02: filter on round_number (sequential 1, 2, 3…), not meeting_key
+            # (which is a large server-assigned int like 1219 that doesn't match
+            # user-supplied round numbers from the CLI).
+            sess_round = sess.get("round_number") or sess.get("meeting_round_number")
+            if sess_round is not None and int(sess_round) not in rounds:
+                logger.debug("Skipping round_number=%s (not in rounds filter)", sess_round)
                 continue
 
         sk = int(sess.get("session_key", 0))
