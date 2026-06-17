@@ -306,29 +306,31 @@ def build_features_for_session(
                 }
                 rows.append(row)
 
-        if not rows:
-            return 0
+    # WR-02: outer `with engine.connect() as conn` block ends here.
+    # Open a fresh connection for the bulk insert so we never hold two concurrent
+    # write connections against SQLite (risks "database is locked" under WAL mode).
+    if not rows:
+        return 0
 
-        # Bulk insert
-        if rows:
-            df_insert = pd.DataFrame(rows)
-            with engine.connect() as conn2:
-                df_insert.to_sql(
-                    table_name,
-                    conn2,
-                    if_exists="append",
-                    index=False,
-                    method="multi",
-                    chunksize=500,
-                )
-                conn2.commit()
-
-        inserted = len(rows)
-        logger.info(
-            "build_features_for_session: inserted %d %s rows for session %d",
-            inserted, kind, session_key,
+    # Bulk insert in its own connection (outer conn is now closed)
+    df_insert = pd.DataFrame(rows)
+    with engine.connect() as conn_insert:
+        df_insert.to_sql(
+            table_name,
+            conn_insert,
+            if_exists="append",
+            index=False,
+            method="multi",
+            chunksize=500,
         )
-        return inserted
+        conn_insert.commit()
+
+    inserted = len(rows)
+    logger.info(
+        "build_features_for_session: inserted %d %s rows for session %d",
+        inserted, kind, session_key,
+    )
+    return inserted
 
 
 def _maybe_float(value) -> Optional[float]:
