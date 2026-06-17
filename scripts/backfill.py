@@ -41,6 +41,7 @@ from pathlib import Path
 # Ensure src/ is on the path for non-installed runs
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from f1_prediction.features.builder import build_all_features  # noqa: E402
 from f1_prediction.ingest import fastf1_loader, openf1_loader  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -145,8 +146,18 @@ def main() -> None:
             }
             print(json.dumps(output))
 
+    # Feature builder: run after all sessions are backfilled (D-13)
     if args.skip_features:
-        logger.info("--skip-features specified; skipping feature builder (no-op in Phase 1)")
+        logger.info("--skip-features specified; skipping feature builder")
+    else:
+        logger.info("Running feature builder (use --skip-features to skip)...")
+        try:
+            feature_result = build_all_features(only_years=args.years)
+            logger.info("Feature builder complete: %s", feature_result)
+            print(json.dumps({"feature_build": feature_result}))
+        except Exception as exc:
+            logger.error("Feature builder failed: %s", exc, exc_info=True)
+            had_error = True
 
     sys.exit(1 if had_error else 0)
 

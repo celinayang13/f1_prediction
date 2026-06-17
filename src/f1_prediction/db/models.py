@@ -2,12 +2,14 @@
 SQLAlchemy ORM models for F1 prediction raw data tables.
 
 This module defines the declarative Base and all raw-data models:
-  - RawSession   (table: raw_sessions)
-  - RawLap       (table: raw_laps)
-  - RawStint     (table: raw_stints)
-  - RawPitStop   (table: raw_pit_stops)
-  - RawPosition  (table: raw_positions)
-  - RawWeather   (table: raw_weather)
+  - RawSession      (table: raw_sessions)
+  - RawLap          (table: raw_laps)
+  - RawStint        (table: raw_stints)
+  - RawPitStop      (table: raw_pit_stops)
+  - RawPosition     (table: raw_positions)
+  - RawWeather      (table: raw_weather)
+  - FeaturesPrerace (table: features_prerace)    [Plan 03]
+  - FeaturesInrace  (table: features_inrace)     [Plan 03]
 
 Schema is created via `Base.metadata.create_all(engine)`. For Phase 1,
 schema changes are handled by deleting `data/f1.db` and re-backfilling
@@ -26,6 +28,7 @@ from sqlalchemy import (
     Float,
     Index,
     Integer,
+    PrimaryKeyConstraint,
     String,
     UniqueConstraint,
 )
@@ -253,5 +256,108 @@ class RawWeather(Base):
         CheckConstraint(
             "wet_dry_mixed IN ('wet', 'dry', 'mixed')",
             name="ck_raw_weather_wet_dry_mixed",
+        ),
+    )
+
+
+class FeaturesPrerace(Base):
+    """
+    Pre-race feature row: one row per (session_key, driver_number).
+
+    session_key references a Race session in raw_sessions. Features are
+    computed from the matching Qualifying and FP2/FP3 sessions for the
+    same (year, round_number) via the feature builder.
+
+    Composite PK (session_key, driver_number) doubles as the dedupe key —
+    the builder DELETEs then re-INSERTs for a given session_key to allow
+    clean re-runs (D-13).
+
+    Columns (D-02):
+      qualifying_delta_to_pole  — gap in seconds behind P1 qualifier
+      practice_pace_fp2         — driver's median FP2 pace vs field (negative = faster)
+      practice_pace_fp3         — driver's median FP3 pace vs field
+      circuit_win_rate          — driver's win rate at this circuit (pre-computed, D-04)
+      circuit_avg_finish        — constructor's avg finish at this circuit last 2 seasons
+      constructor_pace_delta    — constructor pace vs field median at this circuit (D-04)
+      championship_position     — driver standings position before this race
+      grid_position             — starting grid position (approximated from lap-1 raw_positions)
+      driver_seasons_in_f1      — distinct seasons driver appears in raw_sessions
+      finish_position           — target label (int, 1-based; D-05)
+      team_name                 — constructor name (stored to avoid runtime driver→team join)
+
+    Chronological ordering requirement (D-04):
+      The builder MUST process sessions in chronological (year, round_number) order
+      so circuit_win_rate and circuit_avg_finish can read prior years' finish_position
+      rows from this table.
+    """
+
+    __tablename__ = "features_prerace"
+
+    session_key = Column(Integer, nullable=False)
+    driver_number = Column(Integer, nullable=False)
+    qualifying_delta_to_pole = Column(Float)       # NULL if no Q session found
+    practice_pace_fp2 = Column(Float)              # NULL if FP2 not available
+    practice_pace_fp3 = Column(Float)              # NULL if FP3 not available
+    circuit_win_rate = Column(Float)               # NULL for debut at circuit (no prior races)
+    circuit_avg_finish = Column(Float)             # NULL if no prior constructor data
+    constructor_pace_delta = Column(Float)         # NULL if no prior constructor data
+    championship_position = Column(Integer)        # NULL for first race of season
+    grid_position = Column(Integer)                # NULL if no lap-1 position data
+    driver_seasons_in_f1 = Column(Integer)         # ≥ 1 for any driver in raw_sessions
+    finish_position = Column(Integer)              # target label; NULL for non-race sessions
+    team_name = Column(String)                     # constructor name
+
+    __table_args__ = (
+        PrimaryKeyConstraint("session_key", "driver_number", name="pk_features_prerace"),
+    )
+
+
+class FeaturesInrace(Base):
+    """
+    In-race feature rows: one row per (session_key, driver_number, lap_number).
+
+    Computed for Race sessions only. Joins raw_laps + raw_stints + raw_pit_stops
+    + raw_positions per driver per lap.
+
+    Composite PK (session_key, driver_number, lap_number) is the dedupe key.
+
+    Columns (D-03):
+      lap_number        — current lap number (1-based)
+      gap_to_leader     — cumulative gap in seconds (derived from cumsum of lap_duration)
+      tyre_compound     — compound on current lap (SOFT/MEDIUM/HARD/INTERMEDIATE/WET)
+      tyre_age_laps     — laps on current tyre set
+      pit_stop_count    — cumulative pit stops as of this lap (default 0)
+      position          — race position (1–20)
+      interval_ahead    — gap in seconds to car immediately ahead
+      interval_behind   — gap in seconds to car immediately behind
+      pit_stop_delta    — lane_duration of most recent pit stop (NULL if no pit this lap)
+      laps_remaining    — total_laps - lap_number (NULL if total_laps not in raw_sessions)
+
+    Approximations (documented):
+      gap_to_leader  — cumulative sum of lap_duration per driver, difference vs leader's cumsum
+      interval_ahead — derived from gap_to_leader differences between adjacent positions
+      interval_behind— derived from gap_to_leader differences between adjacent positions
+      grid_position  — taken from lap-1 raw_positions (formation lap not strictly available)
+    """
+
+    __tablename__ = "features_inrace"
+
+    session_key = Column(Integer, nullable=False)
+    driver_number = Column(Integer, nullable=False)
+    lap_number = Column(Integer, nullable=False)
+    gap_to_leader = Column(Float)            # NULL on lap 1 (leader has 0 by definition)
+    tyre_compound = Column(String)           # NULL if no stint data available
+    tyre_age_laps = Column(Integer)          # NULL if tyre_age_at_start not recorded
+    pit_stop_count = Column(Integer, nullable=False, default=0)
+    position = Column(Integer)               # NULL if no position data
+    interval_ahead = Column(Float)           # NULL for leader (no car ahead)
+    interval_behind = Column(Float)          # NULL for last car (no car behind)
+    pit_stop_delta = Column(Float)           # NULL if no pit stop this lap
+    laps_remaining = Column(Integer)         # NULL if total_laps not known
+
+    __table_args__ = (
+        PrimaryKeyConstraint(
+            "session_key", "driver_number", "lap_number",
+            name="pk_features_inrace",
         ),
     )
