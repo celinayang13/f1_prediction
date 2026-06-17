@@ -15,7 +15,7 @@ Four phases take the project from an empty SQLite database to a live dashboard s
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Data & Features** - Historical backfill, live poller, and feature table populated with engineered race features
+- [x] **Phase 1: Data & Features** - Historical backfill, live poller, and feature table populated with engineered race features
 - [ ] **Phase 2: Model Training** - Pre-race and in-race LightGBM models trained offline and serialized to disk
 - [ ] **Phase 3: Prediction Pipeline & Dashboard** - Inference wired into the poll loop; Dash dashboard showing live win probabilities
 - [ ] **Phase 4: Live Race Integration** - End-to-end smoke test against a real F1 race weekend session
@@ -36,7 +36,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Tyre compound and age per driver per stint are stored and joinable to lap rows
   5. The feature builder produces a populated `features` table with one row per (session_key, driver_number, lap_number) covering all historical sessions
 
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans executed
 **Wave 1**
 
 - [x] 01-01-PLAN.md — Walking Skeleton: scaffold, ORM/WAL engine, FastF1 single-race ingest, E2E pytest
@@ -47,7 +47,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 01-03-PLAN.md — Feature builder (features_prerace + features_inrace) + APScheduler live poller
+- [x] 01-03-PLAN.md — Feature builder (features_prerace + features_inrace) + APScheduler live poller
 
 ### Phase 2: Model Training
 
@@ -103,7 +103,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Data & Features | 2/3 | In Progress|  |
+| 1. Data & Features | 3/3 | Complete | 2026-06-17 |
 | 2. Model Training | 0/TBD | Not started | - |
 | 3. Prediction Pipeline & Dashboard | 0/TBD | Not started | - |
 | 4. Live Race Integration | 0/TBD | Not started | - |

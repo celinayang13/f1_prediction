@@ -9,7 +9,7 @@
 
 - [x] **DATA-01**: System fetches and stores all historical F1 race, qualifying, and practice sessions from OpenF1 API for the 2022–2025 seasons
 - [x] **DATA-02**: System stores weather conditions (wet/dry/mixed) per session
-- [ ] **DATA-03**: System polls OpenF1 live during a race weekend and stores lap-by-lap position, interval, and lap time data
+- [x] **DATA-03**: System polls OpenF1 live during a race weekend and stores lap-by-lap position, interval, and lap time data
 - [x] **DATA-04**: System stores tyre compound and age per driver per stint (required for in-race model)
 
 ### Pre-race Model
@@ -63,9 +63,9 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DATA-01 | Phase 1 | In Progress (Plan 01: 2022 single-race ingest path proven; Plan 02 widens to all seasons) |
+| DATA-01 | Phase 1 | Complete |
 | DATA-02 | Phase 1 | Complete |
-| DATA-03 | Phase 1 | Pending |
+| DATA-03 | Phase 1 | Complete (Plan 03: APScheduler live poller, session window guard, dedupe) |
 | DATA-04 | Phase 1 | Complete |
 | PRERACE-01 | Phase 2 | Pending |
 | PRERACE-02 | Phase 2 | Pending |
