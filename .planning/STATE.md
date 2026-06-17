@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 01 Plan 03 complete — feature tables + live poller implemented and tested
-last_updated: "2026-06-17T00:00:00Z"
-last_activity: 2026-06-17 -- Phase 01 Plan 03 executed (34 tests passing, features_prerace + features_inrace + live poller)
+stopped_at: Phase 01 verified PASSED — ready for Phase 02 planning
+last_updated: "2026-06-17T05:25:40Z"
+last_activity: 2026-06-17 -- Phase 01 verification complete (5/5 SC verified, 34 tests pass)
 progress:
   total_phases: 4
   completed_phases: 1
@@ -21,24 +21,24 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** Show accurate, live-updating win probabilities for every driver during an F1 race weekend
-**Current focus:** Phase 01 — data-features
+**Current focus:** Phase 02 — model training (Phase 01 verified complete)
 
 ## Current Position
 
-Phase: 01 (data-features) — COMPLETE
+Phase: 01 (data-features) — VERIFIED COMPLETE
 Plan: 3 of 3 (Plan 03 complete)
-Status: Phase 01 complete — ready for Phase 02 (model training)
-Last activity: 2026-06-17 -- Phase 01 Plan 03 executed (34 tests passing, features_prerace + features_inrace + live poller)
+Status: Phase 01 verified PASSED (5/5 success criteria, 34 tests) — ready to plan Phase 02
+Last activity: 2026-06-17 -- Phase 01 verification complete (all 5 ROADMAP SCs verified, 4 requirements satisfied, 34 tests pass, WAL mode confirmed)
 
-Progress: [██████████] 100% (Phase 01)
+Progress: [██████████] 100% (Phase 01 complete and verified)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 2
-- Average duration: ~8 min
-- Total execution time: ~17 min
+- Total plans completed: 3
+- Average duration: ~15.7 min
+- Total execution time: ~47 min
 
 **By Phase:**
 
@@ -78,20 +78,24 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-None yet.
+None.
 
 ### Blockers/Concerns
 
 - OpenF1 free tier may have higher latency for live sessions; sponsor tier (€9.90/month) may be needed on race weekends — validate in Phase 4
+- Phase 02 must handle NULL values in features_prerace: practice_pace_fp3 NULL on sprint weekends, championship_position NULL for season opener, team_name NULL for debut races
 
 ## Deferred Items
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| *(none)* | | | |
+| grid_position accuracy | Use FastF1 GridPosition from session.results instead of lap-1 approximation | Phase 4 | 01-03 |
+| Sprint weekend FP3 | practice_pace_fp3 is NULL on sprint weekends — Phase 2 model must handle NULL in training | Phase 2 | 01-03 |
+| team_name for debut races | NULL for drivers' first race — Phase 2 categorical encoder must handle None | Phase 2 | 01-03 |
+| OpenF1 intervals for live gap_to_leader | poll_once uses cumulative lap times for gap; /v1/intervals endpoint available but not yet fetched/stored | Phase 3 | 01-03 |
 
 ## Session Continuity
 
-Last session: 2026-06-17T00:00:00Z
-Stopped at: Phase 01 Plan 03 complete — feature tables + live poller implemented and tested
-Resume file: None (Phase 01 complete — start Phase 02)
+Last session: 2026-06-17T05:25:40Z
+Stopped at: Phase 01 verified PASSED — ready for Phase 02 planning
+Resume file: None (Phase 02 not yet planned — run /gsd-plan-phase 02)
