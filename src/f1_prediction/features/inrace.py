@@ -153,22 +153,9 @@ def compute_inrace_features_for_session(session_key: int, conn) -> pd.DataFrame:
         gap_by_pos = gap_by_pos.dropna(subset=["position"])
         gap_by_pos["position"] = gap_by_pos["position"].astype(int)
 
-        # For interval_ahead: gap_to_leader of car at position-1 (closer to leader)
-        gap_ahead = gap_by_pos[["lap_number", "position", "gap_to_leader"]].copy()
-        gap_ahead["position_plus1"] = gap_ahead["position"] + 1
-        gap_ahead = gap_ahead.rename(columns={"gap_to_leader": "gap_ahead_leader"})
-
-        # Merge: for each (driver, lap) with position P, join car at position P-1
-        laps_df = laps_df.merge(
-            gap_by_pos[["lap_number", "position", "gap_to_leader"]].rename(
-                columns={"position": "pos_ahead", "gap_to_leader": "gap_ahead_val"}
-            ),
-            left_on=["lap_number", "position"],
-            right_on=["lap_number", "pos_ahead"],
-            how="left",
-        )
-        # interval_ahead = leader's gap minus this car's gap (leader at position 1 has 0)
-        # Actually: interval_ahead = this car's gap - car_ahead's gap (car ahead has smaller gap)
+        # CR-03: removed dead first merge that joined each car to itself (position P
+        # to position P) — it was unused and risked column-name conflicts/type coercion.
+        # Compute interval_ahead directly: join car at position P to car at P-1.
         laps_df["pos_ahead_adj"] = laps_df["position"].astype("Float64") - 1
         laps_df = laps_df.merge(
             gap_by_pos[["lap_number", "position", "gap_to_leader"]].rename(
