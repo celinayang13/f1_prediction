@@ -114,6 +114,15 @@ def _normalize_openf1_stints(stints: list[dict], session_key: int) -> list[dict]
     """Normalize OpenF1 /v1/stints rows to raw_stints schema."""
     rows = []
     for s in stints:
+        # WR-04: discard stints with null lap_start or lap_end rather than defaulting
+        # to 1, which would create zero-length or invalid stints.
+        lap_start = _safe_int(s.get("lap_start"))
+        lap_end = _safe_int(s.get("lap_end"))
+        if lap_start is None or lap_end is None:
+            logger.debug(
+                "Skipping stint record with null lap_start/lap_end for session %d", session_key
+            )
+            continue
         compound = s.get("compound")
         if compound is None:
             compound = "UNKNOWN"
@@ -121,8 +130,8 @@ def _normalize_openf1_stints(stints: list[dict], session_key: int) -> list[dict]
             "session_key": session_key,
             "driver_number": _safe_int(s.get("driver_number")),
             "stint_number": _safe_int(s.get("stint_number")) or 1,
-            "lap_start": _safe_int(s.get("lap_start")) or 1,
-            "lap_end": _safe_int(s.get("lap_end")) or 1,
+            "lap_start": lap_start,
+            "lap_end": lap_end,
             "compound": str(compound),
             "tyre_age_at_start": _safe_int(s.get("tyre_age_at_start")),
         })
@@ -137,10 +146,17 @@ def _normalize_openf1_pits(pits: list[dict], session_key: int) -> list[dict]:
     """
     rows = []
     for p in pits:
+        # WR-04: discard pit stops with null lap_number rather than defaulting to 0.
+        # Lap 0 doesn't exist; a phantom pit on lap 0 inflates pit_stop_count for
+        # every subsequent lap (WHERE pit_lap <= lap_number catches 0 <= 1, etc.).
+        lap_num = _safe_int(p.get("lap_number"))
+        if lap_num is None:
+            logger.debug("Skipping pit stop record with null lap_number for session %d", session_key)
+            continue
         rows.append({
             "session_key": session_key,
             "driver_number": _safe_int(p.get("driver_number")),
-            "lap_number": _safe_int(p.get("lap_number")) or 0,
+            "lap_number": lap_num,
             "lane_duration": _safe_float(p.get("lane_duration")),
             "stop_duration": _safe_float(p.get("stop_duration")),
             "date_recorded": p.get("date"),
