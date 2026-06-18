@@ -1,7 +1,7 @@
 """
 Model training CLI entry point (D-13).
 
-Trains both the pre-race and in-race XGBoost win probability models from
+Trains both the pre-race and in-race LightGBM win probability models from
 the Phase 1 feature tables in data/f1.db and serializes the calibrated
 artifacts to data/models/.
 
@@ -38,7 +38,7 @@ def main() -> None:
     """CLI entrypoint that trains pre-race and in-race models."""
     parser = argparse.ArgumentParser(
         description=(
-            "Train the pre-race and in-race XGBoost win probability models. "
+            "Train the pre-race and in-race LightGBM win probability models. "
             "Reads features_prerace and features_inrace from data/f1.db, "
             "trains with a 2022-2024 temporal split, calibrates on 2025 data, "
             "and writes data/models/prerace_model.joblib and inrace_model.joblib. "

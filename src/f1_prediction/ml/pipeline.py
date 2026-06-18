@@ -3,7 +3,7 @@ Model training pipeline for pre-race and in-race models (Plans 02-01 and 02-02).
 
 Implements:
   - build_encoder: OrdinalEncoder for string categoricals (team_name / tyre_compound)
-  - train_xgb_classifier: XGBClassifier with locked D-03 hyperparameters
+  - train_lgb_classifier: LGBMClassifier with locked D-03 hyperparameters
   - calibrate_model: Platt scaling via CalibratedClassifierCV(FrozenEstimator(...))
   - save_artifact: joblib serialization of the model dict artifact
   - train_prerace_model: orchestration entry point for pre-race model
@@ -21,12 +21,12 @@ from pathlib import Path
 from typing import Any
 
 import joblib
+import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.frozen import FrozenEstimator
 from sklearn.preprocessing import OrdinalEncoder
-import xgboost as xgb
 
 from f1_prediction.ml.loader import (
     PRERACE_CAT_COLS,
@@ -65,13 +65,13 @@ def build_encoder(cat_cols: list[str]) -> OrdinalEncoder:
 
     Uses unknown_value=np.nan so that unseen categories at inference time
     (e.g., a new team in 2026) are encoded as NaN rather than -1.
-    This aligns with XGBoost's native missing-value sentinel (NaN),
+    This aligns with LightGBM's native missing-value handling (NaN),
     ensuring unknown categories are routed through the missing-value branch
     during tree splits (RESEARCH Pitfall 7 override: np.nan, NOT -1).
 
     The CONTEXT.md D-06 decision specified unknown_value=-1; RESEARCH §Pitfall 7
-    overrides this because XGBoost's missing sentinel is NaN by default.
-    Using -1 without setting XGBClassifier(missing=-1) would silently produce
+    overrides this because LightGBM's missing sentinel is NaN by default.
+    Using -1 without explicit missing configuration would silently produce
     wrong predictions for unknown categories.
 
     Args:
@@ -82,53 +82,53 @@ def build_encoder(cat_cols: list[str]) -> OrdinalEncoder:
     """
     return OrdinalEncoder(
         handle_unknown="use_encoded_value",
-        unknown_value=np.nan,           # NOT -1 — aligns with XGBoost NaN sentinel
-        encoded_missing_value=np.nan,   # NULL inputs → NaN output for XGBoost NaN branch
+        unknown_value=np.nan,           # NOT -1 — aligns with LightGBM NaN sentinel
+        encoded_missing_value=np.nan,   # NULL inputs → NaN output for LightGBM NaN branch
     )
 
 
-def train_xgb_classifier(
+def train_lgb_classifier(
     X_train: pd.DataFrame, y_train: pd.Series
-) -> xgb.XGBClassifier:
+) -> lgb.LGBMClassifier:
     """
-    Train an XGBClassifier with the locked D-03 hyperparameters.
+    Train an LGBMClassifier with the locked D-03 hyperparameters.
 
     Hyperparameters are fixed per D-03 (no GridSearch or early stopping):
       - n_estimators=300, max_depth=4, learning_rate=0.05
-      - scale_pos_weight=19 for 1:19 winner-to-non-winner class imbalance (D-02)
-      - enable_categorical=True to use ordinal-encoded categoricals as native
-        categorical features (D-07)
-      - tree_method="hist" required for enable_categorical (RESEARCH anti-pattern note)
+      - is_unbalance=True handles the 1:19 winner-to-non-winner class imbalance (D-02)
       - random_state=42 for reproducibility
+      - verbose=-1 to suppress LightGBM training log output
+
+    LightGBM is the mandated model per CLAUDE.md (LightGBM 4.6.0, HIGH confidence),
+    replacing the earlier XGBoost implementation. LightGBM outperforms XGBoost on
+    categorical-heavy tabular data and supports native missing-value handling via NaN.
 
     Args:
         X_train: Training feature DataFrame (categoricals already OrdinalEncoded).
         y_train: Binary training labels (1 = winner, 0 = non-winner).
 
     Returns:
-        Fitted XGBClassifier.
+        Fitted LGBMClassifier.
     """
-    model = xgb.XGBClassifier(
+    model = lgb.LGBMClassifier(
         n_estimators=300,
         max_depth=4,
         learning_rate=0.05,
-        scale_pos_weight=19,        # 1:19 class imbalance (D-02)
-        enable_categorical=True,    # treat ordinal-encoded cols as categoricals (D-07)
-        tree_method="hist",         # required for enable_categorical
+        is_unbalance=True,   # handles 1:19 class imbalance (D-02)
         random_state=42,
-        eval_metric="logloss",
+        verbose=-1,
     )
     model.fit(X_train.values, y_train.values)
     return model
 
 
 def calibrate_model(
-    fitted_model: xgb.XGBClassifier,
+    fitted_model: lgb.LGBMClassifier,
     X_test: pd.DataFrame,
     y_test: pd.Series,
 ) -> CalibratedClassifierCV:
     """
-    Calibrate a pre-fitted XGBoost model using Platt scaling (sigmoid method).
+    Calibrate a pre-fitted LightGBM model using Platt scaling (sigmoid method).
 
     Uses FrozenEstimator to wrap the pre-fitted model before passing to
     CalibratedClassifierCV. FrozenEstimator prevents sklearn from re-fitting
@@ -137,7 +137,7 @@ def calibrate_model(
     for sklearn 1.6+).
 
     The calibration layer is fitted on the 2025 test set (D-09), converting
-    raw XGBoost scores to better-calibrated probabilities. Platt scaling
+    raw LightGBM scores to better-calibrated probabilities. Platt scaling
     (sigmoid method) is preferred over isotonic regression at this data scale
     (~480 test rows) because isotonic overfits on small calibration sets.
 
@@ -146,7 +146,7 @@ def calibrate_model(
     CalibratedClassifierCV's n_splits > n_samples check.
 
     Args:
-        fitted_model: A pre-fitted XGBClassifier from train_xgb_classifier.
+        fitted_model: A pre-fitted LGBMClassifier from train_lgb_classifier.
         X_test: Test feature DataFrame (categoricals already OrdinalEncoded).
         y_test: Binary test labels (1 = winner, 0 = non-winner).
 
@@ -195,7 +195,7 @@ def save_artifact(
     in the correct order without re-fitting.
 
     Artifact keys (D-11 contract):
-      model        — CalibratedClassifierCV wrapping the XGBClassifier
+      model        — CalibratedClassifierCV wrapping the LGBMClassifier
       feature_cols — ordered list of feature column names (inference order)
       cat_cols     — which columns were ordinally encoded
       encoder      — fitted OrdinalEncoder; Phase 3 calls encoder.transform()
@@ -249,7 +249,7 @@ def train_prerace_model(
       5. Build OrdinalEncoder, fit on X_train[cat_cols] only (RESEARCH Pitfall 3:
          never fit on full dataset before split).
       6. Transform both X_train and X_test using the fitted encoder.
-      7. Train XGBClassifier via train_xgb_classifier.
+      7. Train LGBMClassifier via train_lgb_classifier.
       8. Calibrate via calibrate_model (FrozenEstimator + Platt scaling).
       9. Evaluate: compute_log_loss + compute_top3_hit_rate; print to stdout (D-16).
      10. Save artifact via save_artifact.
@@ -317,8 +317,8 @@ def train_prerace_model(
     X_test[PRERACE_CAT_COLS] = encoder.transform(X_test[PRERACE_CAT_COLS])
 
     # Step 6: Train
-    logger.info("Training XGBClassifier on %d rows...", len(X_train))
-    model = train_xgb_classifier(X_train, train_df["label"])
+    logger.info("Training LGBMClassifier on %d rows...", len(X_train))
+    model = train_lgb_classifier(X_train, train_df["label"])
 
     # Step 7: Calibrate (Platt scaling on test set — D-09)
     logger.info("Calibrating model on %d test rows...", len(X_test))
@@ -384,7 +384,7 @@ def train_inrace_model(
       5. Build a SEPARATE OrdinalEncoder for INRACE_CAT_COLS (["tyre_compound"]).
          Fit only on X_train[INRACE_CAT_COLS] (RESEARCH Pitfall 3).
       6. Transform both X_train and X_test using the fitted encoder.
-      7. Train XGBClassifier via train_xgb_classifier (same D-03 hyperparameters).
+      7. Train LGBMClassifier via train_lgb_classifier (same D-03 hyperparameters).
       8. Calibrate via calibrate_model (FrozenEstimator + Platt scaling, D-09).
       9. Evaluate: log_loss + per-(session_key, lap_number) top-3 hit rate at final lap.
          Print to stdout in D-16 format.
@@ -456,8 +456,8 @@ def train_inrace_model(
     X_test[INRACE_CAT_COLS] = encoder.transform(X_test[INRACE_CAT_COLS])
 
     # Step 6: Train (same D-03 hyperparameters as pre-race model)
-    logger.info("Training in-race XGBClassifier on %d rows...", len(X_train))
-    model = train_xgb_classifier(X_train, train_df["label"])
+    logger.info("Training in-race LGBMClassifier on %d rows...", len(X_train))
+    model = train_lgb_classifier(X_train, train_df["label"])
 
     # Step 7: Calibrate (Platt scaling on test set — D-09)
     logger.info("Calibrating in-race model on %d test rows...", len(X_test))
