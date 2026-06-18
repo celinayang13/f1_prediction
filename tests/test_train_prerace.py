@@ -93,11 +93,15 @@ def _seed_features_prerace(conn, *, session_key: int, driver_rows: list[dict]) -
 
 def _build_seeded_engine(tmp_path):
     """
-    Build and return a seeded engine with two race sessions:
+    Build and return a seeded engine with training and test race sessions:
       - 2022 Round 1 (training set, year <= 2024)
-      - 2025 Round 1 (test set, year == 2025)
+      - 2025 Round 1 and Round 2 (test set, year == 2025)
 
     Each session has 3 drivers with distinct finish positions.
+    Two sessions for 2025 provide 6 test rows (2 winners), which satisfies
+    CalibratedClassifierCV's requirement of at least cv examples per class
+    when cv=2 (clamped from default 5 for small test sets).
+
     One row has practice_pace_fp3=NULL (D-08 NaN handling).
     One row has team_name=NULL (encoder unknown branch).
     """
@@ -106,10 +110,12 @@ def _build_seeded_engine(tmp_path):
     init_db(engine)
 
     with engine.connect() as conn:
-        # 2022 Race (session_key=202201, Q=202200)
+        # 2022 Race Round 1 (session_key=202201, Q=202200)
         _seed_raw_sessions(conn, year=2022, round_number=1, race_sk=202201, q_sk=202200)
-        # 2025 Race (session_key=202501, Q=202500)
+        # 2025 Race Round 1 (session_key=202501, Q=202500)
         _seed_raw_sessions(conn, year=2025, round_number=1, race_sk=202501, q_sk=202500)
+        # 2025 Race Round 2 (session_key=202502, Q=202503) — second test race for cv=2
+        _seed_raw_sessions(conn, year=2025, round_number=2, race_sk=202502, q_sk=202503)
 
         # 2022 features — training rows (3 drivers)
         _seed_features_prerace(conn, session_key=202201, driver_rows=[
@@ -157,7 +163,7 @@ def _build_seeded_engine(tmp_path):
             },
         ])
 
-        # 2025 features — test rows (3 drivers)
+        # 2025 Round 1 features — test rows (3 drivers)
         _seed_features_prerace(conn, session_key=202501, driver_rows=[
             {
                 "driver_number": 1,
@@ -200,6 +206,52 @@ def _build_seeded_engine(tmp_path):
                 "grid_position": 3,
                 "driver_seasons_in_f1": 11,
                 "team_name": None,   # NULL — test encoder unknown branch
+            },
+        ])
+
+        # 2025 Round 2 features — second test race (provides 2nd winner for cv=2)
+        _seed_features_prerace(conn, session_key=202502, driver_rows=[
+            {
+                "driver_number": 11,
+                "finish_position": 1,
+                "qualifying_delta_to_pole": 0.0,
+                "practice_pace_fp2": -0.2,
+                "practice_pace_fp3": -0.1,
+                "circuit_win_rate": 0.15,
+                "circuit_avg_finish": 3.0,
+                "constructor_pace_delta": -0.1,
+                "championship_position": 2,
+                "grid_position": 1,
+                "driver_seasons_in_f1": 7,
+                "team_name": "Ferrari",
+            },
+            {
+                "driver_number": 1,
+                "finish_position": 2,
+                "qualifying_delta_to_pole": 0.1,
+                "practice_pace_fp2": -0.3,
+                "practice_pace_fp3": None,    # NULL — D-08 NaN handling
+                "circuit_win_rate": 0.40,
+                "circuit_avg_finish": 2.0,
+                "constructor_pace_delta": -0.2,
+                "championship_position": 1,
+                "grid_position": 2,
+                "driver_seasons_in_f1": 8,
+                "team_name": "Red Bull",
+            },
+            {
+                "driver_number": 44,
+                "finish_position": 3,
+                "qualifying_delta_to_pole": 0.8,
+                "practice_pace_fp2": 0.4,
+                "practice_pace_fp3": 0.3,
+                "circuit_win_rate": 0.20,
+                "circuit_avg_finish": 4.0,
+                "constructor_pace_delta": 0.15,
+                "championship_position": 3,
+                "grid_position": 3,
+                "driver_seasons_in_f1": 11,
+                "team_name": None,   # NULL — encoder unknown branch
             },
         ])
 
