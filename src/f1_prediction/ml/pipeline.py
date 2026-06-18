@@ -262,7 +262,7 @@ def save_artifact(
         "tested_on": tested_on,
     }
     joblib.dump(artifact, path)
-    logger.info("Saved pre-race artifact to %s", path)
+    logger.info("Saved %s artifact to %s", path.stem, path)
     return artifact
 
 
