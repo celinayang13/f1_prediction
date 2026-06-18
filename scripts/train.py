@@ -10,7 +10,7 @@ Usage:
 
 Output (stdout):
     prerace  log_loss=...  top3_hit_rate=...  (.../... races)
-    (in-race metrics printed by Plan 02-02 once train_inrace_model is wired)
+    inrace  log_loss=...  top3_hit_rate_final_lap=...  (.../... races)
 
 Exit codes:
     0: success — both model artifacts written to data/models/
@@ -31,7 +31,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from f1_prediction.db.engine import get_engine  # noqa: E402
-from f1_prediction.ml.pipeline import train_prerace_model  # noqa: E402
+from f1_prediction.ml.pipeline import train_prerace_model, train_inrace_model  # noqa: E402
 
 
 def main() -> None:
@@ -41,8 +41,8 @@ def main() -> None:
             "Train the pre-race and in-race XGBoost win probability models. "
             "Reads features_prerace and features_inrace from data/f1.db, "
             "trains with a 2022-2024 temporal split, calibrates on 2025 data, "
-            "and writes data/models/prerace_model.joblib (and inrace_model.joblib "
-            "once Plan 02-02 is complete). Always retrains both models on every run."
+            "and writes data/models/prerace_model.joblib and inrace_model.joblib. "
+            "Always retrains both models on every run (D-14: no selective flags)."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
@@ -58,7 +58,7 @@ def main() -> None:
     try:
         engine = get_engine()
         train_prerace_model(engine)
-        # TODO(02-02): train_inrace_model(engine)
+        train_inrace_model(engine)
         sys.exit(0)
     except Exception as exc:
         logging.getLogger(__name__).error("Training failed: %s", exc, exc_info=True)

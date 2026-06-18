@@ -1,17 +1,18 @@
 """
-Pre-race model training pipeline (Plan 02-01).
+Model training pipeline for pre-race and in-race models (Plans 02-01 and 02-02).
 
 Implements:
-  - build_encoder: OrdinalEncoder for string categoricals (team_name)
+  - build_encoder: OrdinalEncoder for string categoricals (team_name / tyre_compound)
   - train_xgb_classifier: XGBClassifier with locked D-03 hyperparameters
   - calibrate_model: Platt scaling via CalibratedClassifierCV(FrozenEstimator(...))
   - save_artifact: joblib serialization of the model dict artifact
-  - train_prerace_model: orchestration entry point (loader → split → encode → train → calibrate → evaluate → save)
+  - train_prerace_model: orchestration entry point for pre-race model
+  - train_inrace_model: orchestration entry point for in-race model (Plan 02-02)
 
 Security:
   - SQL queries delegated to loader.py (text() with bound params, T-03-05)
-  - Artifact path is a hardcoded Path constant (T-02-01: no user-input path derivation)
-  - joblib artifact loaded only from local filesystem (trust boundary: disk → joblib.load)
+  - Artifact paths are hardcoded Path constants (T-02-01, T-02.2-01: no user-input derivation)
+  - joblib artifacts loaded only from local filesystem (trust boundary: disk → joblib.load)
 """
 from __future__ import annotations
 
@@ -32,6 +33,10 @@ from f1_prediction.ml.loader import (
     PRERACE_FEATURE_COLS,
     PRERACE_TARGET,
     load_prerace_df,
+    INRACE_CAT_COLS,
+    INRACE_FEATURE_COLS,
+    INRACE_TARGET,
+    load_inrace_df,
 )
 from f1_prediction.ml.evaluate import (
     compute_log_loss,
@@ -42,10 +47,11 @@ from f1_prediction.ml.evaluate import (
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Artifact path constant (T-02-01: hardcoded, no user-input derivation)
+# Artifact path constants (T-02-01, T-02.2-01: hardcoded, no user-input derivation)
 # ---------------------------------------------------------------------------
 
 PRERACE_MODEL_PATH: Path = Path("data/models/prerace_model.joblib")
+INRACE_MODEL_PATH: Path = Path("data/models/inrace_model.joblib")
 
 
 # ---------------------------------------------------------------------------
@@ -345,6 +351,157 @@ def train_prerace_model(
         model=calibrated,
         feature_cols=PRERACE_FEATURE_COLS,
         cat_cols=PRERACE_CAT_COLS,
+        encoder=encoder,
+        trained_on="2022-2024",
+        tested_on="2025",
+    )
+
+    return artifact
+
+
+def train_inrace_model(
+    engine,
+    *,
+    model_path: Path | None = None,
+) -> dict:
+    """
+    Orchestrate the full in-race model training pipeline (Plan 02-02).
+
+    Trains an XGBoost model on per-lap race state (position, gap_to_leader,
+    tyre compound, pit history) and calibrates it on 2025 test data.
+
+    The training label (finish_position) is joined from features_prerace
+    because FeaturesInrace does not store finish_position. An INNER JOIN
+    is used so drivers without a known finish_position are excluded from
+    training (RESEARCH Open Question Q1 resolution, T-02.2-04).
+
+    Steps:
+      1. Load features_inrace joined with features_prerace.finish_position and
+         raw_sessions.year via load_inrace_df (INNER JOIN on session_key, driver_number).
+      2. Guard against empty DataFrame (RESEARCH Pitfall 5).
+      3. Temporal split: train on year <= 2024, test on year == 2025 (D-04, D-05).
+      4. Derive binary labels: finish_position == 1 → label = 1.
+      5. Build a SEPARATE OrdinalEncoder for INRACE_CAT_COLS (["tyre_compound"]).
+         Fit only on X_train[INRACE_CAT_COLS] (RESEARCH Pitfall 3).
+      6. Transform both X_train and X_test using the fitted encoder.
+      7. Train XGBClassifier via train_xgb_classifier (same D-03 hyperparameters).
+      8. Calibrate via calibrate_model (FrozenEstimator + Platt scaling, D-09).
+      9. Evaluate: log_loss + per-(session_key, lap_number) top-3 hit rate at final lap.
+         Print to stdout in D-16 format.
+     10. Save artifact via save_artifact (D-11 dict contract: same 6 keys as pre-race).
+     11. Return the artifact dict.
+
+    Args:
+        engine: SQLAlchemy Engine from get_engine().
+        model_path: Override for the artifact path. Defaults to INRACE_MODEL_PATH.
+                    Used by tests to write under tmp_path instead of data/models/.
+
+    Returns:
+        The serialized artifact dict with keys:
+        {model, feature_cols, cat_cols, encoder, trained_on, tested_on}.
+        cat_cols == ["tyre_compound"] (different from pre-race cat_cols ["team_name"]).
+
+    Raises:
+        RuntimeError: If features_inrace is empty (no rows after the INNER JOIN).
+                      Run 'python scripts/backfill.py' first to populate the table.
+    """
+    artifact_path: Path = model_path if model_path is not None else INRACE_MODEL_PATH
+
+    # Step 1: Load features (INNER JOIN to features_prerace for finish_position label)
+    with engine.connect() as conn:
+        df = load_inrace_df(conn)
+
+    # Step 2: Guard against empty DataFrame (RESEARCH Pitfall 5)
+    if len(df) == 0:
+        raise RuntimeError(
+            "features_inrace is empty — run scripts/backfill.py first"
+        )
+
+    # Step 3: Temporal split (D-04, D-05)
+    train_df = df[df["year"] <= 2024].copy()
+    test_df = df[df["year"] == 2025].copy()
+
+    logger.info(
+        "In-race temporal split: train=%d rows (2022-2024), test=%d rows (2025)",
+        len(train_df),
+        len(test_df),
+    )
+
+    if len(train_df) == 0:
+        raise RuntimeError(
+            "features_inrace is empty — run scripts/backfill.py first"
+        )
+
+    if len(test_df) == 0:
+        raise RuntimeError(
+            "No 2025 test rows in features_inrace — run scripts/backfill.py "
+            "with --years 2025 to populate 2025 race data"
+        )
+
+    # Step 4: Binary labels — 1 if winner (finish_position == 1), else 0
+    train_df = train_df.copy()
+    test_df = test_df.copy()
+    train_df["label"] = (train_df[INRACE_TARGET] == 1).astype(int)
+    test_df["label"] = (test_df[INRACE_TARGET] == 1).astype(int)
+
+    # Step 5: Build a SEPARATE encoder for in-race cat cols and fit on X_train ONLY.
+    # This encoder is distinct from the pre-race encoder — different cat_cols sets
+    # (["tyre_compound"] vs ["team_name"]) and must NOT be shared (RESEARCH Pitfall 3).
+    encoder = build_encoder(INRACE_CAT_COLS)
+    X_train = train_df[INRACE_FEATURE_COLS].copy()
+    X_test = test_df[INRACE_FEATURE_COLS].copy()
+
+    # fit_transform on train, transform only on test — prevents data leakage (Pitfall 3)
+    X_train[INRACE_CAT_COLS] = encoder.fit_transform(X_train[INRACE_CAT_COLS])
+    X_test[INRACE_CAT_COLS] = encoder.transform(X_test[INRACE_CAT_COLS])
+
+    # Step 6: Train (same D-03 hyperparameters as pre-race model)
+    logger.info("Training in-race XGBClassifier on %d rows...", len(X_train))
+    model = train_xgb_classifier(X_train, train_df["label"])
+
+    # Step 7: Calibrate (Platt scaling on test set — D-09)
+    logger.info("Calibrating in-race model on %d test rows...", len(X_test))
+    calibrated = calibrate_model(model, X_test, test_df["label"])
+
+    # Step 8: Evaluate — compute metrics on the calibrated model
+    proba = calibrated.predict_proba(X_test.values)   # shape: (n, 2)
+    win_scores = proba[:, 1]                           # win-class probabilities
+
+    ll = compute_log_loss(test_df["label"].values, win_scores)
+
+    # Add win scores to test_df for top-3 hit rate computation.
+    # For in-race, per-lap softmax uses a composite (session_key, lap_number) key
+    # since each lap is an independent inference moment (INRACE-02, Pitfall 4).
+    test_df = test_df.copy()
+    test_df["win_score"] = win_scores
+    test_df["session_lap_key"] = (
+        test_df["session_key"].astype(str) + "_" + test_df["lap_number"].astype(str)
+    )
+    # Apply per-(session, lap) softmax so each lap group sums to 1.0 (D-10, INRACE-02)
+    test_df["win_prob"] = per_session_softmax(test_df, "win_score", "session_lap_key")
+
+    # D-16: top-3 hit rate at final lap only — filter to max lap_number per session
+    test_df["max_lap"] = test_df.groupby("session_key")["lap_number"].transform("max")
+    final_lap_df = test_df[test_df["lap_number"] == test_df["max_lap"]].copy()
+
+    rate, hits, total = compute_top3_hit_rate(
+        final_lap_df,
+        prob_col="win_prob",
+        label_col="label",
+        session_col="session_key",
+    )
+
+    # D-16: print metrics to stdout in the specified format
+    print(
+        f"inrace  log_loss={ll:.4f}  top3_hit_rate_final_lap={rate:.3f}  ({hits}/{total} races)"
+    )
+
+    # Step 9: Save artifact (D-11 dict contract — same 6-key shape as pre-race)
+    artifact = save_artifact(
+        artifact_path,
+        model=calibrated,
+        feature_cols=INRACE_FEATURE_COLS,
+        cat_cols=INRACE_CAT_COLS,
         encoder=encoder,
         trained_on="2022-2024",
         tested_on="2025",
