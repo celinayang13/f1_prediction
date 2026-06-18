@@ -32,7 +32,7 @@ def compute_log_loss(y_true, win_proba) -> float:
     Returns:
         Log loss as a float.
     """
-    return float(_sklearn_log_loss(y_true, win_proba))
+    return float(_sklearn_log_loss(y_true, win_proba, labels=[0, 1]))
 
 
 def per_session_softmax(
