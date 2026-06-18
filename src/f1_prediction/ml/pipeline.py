@@ -357,6 +357,12 @@ def train_prerace_model(
     calibrated = calibrate_model(model, X_test, test_df["label"])
 
     # Step 8: Evaluate — compute metrics on the calibrated model
+    # WR-01: calibration and evaluation use the same data — reported metrics are
+    # optimistically biased. A dedicated held-out partition would require a larger
+    # 2025 test set. Document the bias explicitly so operators are not misled.
+    logger.warning(
+        "Evaluation metrics measured on the calibration set — values are optimistically biased"
+    )
     proba = calibrated.predict_proba(X_test.values)   # shape: (n, 2)
     win_scores = proba[:, 1]                           # win-class probabilities
 
@@ -502,6 +508,12 @@ def train_inrace_model(
     calibrated = calibrate_model(model, X_test, test_df["label"])
 
     # Step 8: Evaluate — compute metrics on the calibrated model
+    # WR-01: calibration and evaluation use the same data — reported metrics are
+    # optimistically biased. A dedicated held-out partition would require a larger
+    # 2025 test set. Document the bias explicitly so operators are not misled.
+    logger.warning(
+        "Evaluation metrics measured on the calibration set — values are optimistically biased"
+    )
     proba = calibrated.predict_proba(X_test.values)   # shape: (n, 2)
     win_scores = proba[:, 1]                           # win-class probabilities
 
