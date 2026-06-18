@@ -59,6 +59,32 @@ INRACE_MODEL_PATH: Path = Path("data/models/inrace_model.joblib")
 # ---------------------------------------------------------------------------
 
 
+def _sanitize_categoricals(df: pd.DataFrame, cat_cols: list[str]) -> pd.DataFrame:
+    """
+    Convert Python None values to np.nan in categorical columns before OrdinalEncoder.
+
+    When pd.read_sql reads NULL TEXT columns from SQLite, the values become Python
+    None (object dtype), not np.nan. OrdinalEncoder.encoded_missing_value only
+    applies to np.nan float values — Python None is treated as a distinct valid
+    category and assigned an ordinal integer rather than NaN.
+
+    This function replaces None with np.nan so OrdinalEncoder correctly routes
+    missing categoricals through the LightGBM NaN missing-value branch instead
+    of treating None as a learned category.
+
+    Args:
+        df: DataFrame to sanitize (a copy is returned — original is not modified).
+        cat_cols: List of categorical column names to sanitize.
+
+    Returns:
+        New DataFrame with None replaced by np.nan in cat_cols.
+    """
+    df = df.copy()
+    for col in cat_cols:
+        df[col] = df[col].where(pd.notna(df[col]), other=np.nan)
+    return df
+
+
 def build_encoder(cat_cols: list[str]) -> OrdinalEncoder:
     """
     Build an OrdinalEncoder for string categorical columns.
@@ -312,6 +338,12 @@ def train_prerace_model(
     X_train = train_df[PRERACE_FEATURE_COLS].copy()
     X_test = test_df[PRERACE_FEATURE_COLS].copy()
 
+    # Sanitize Python None → np.nan before OrdinalEncoder (CR-02: SQLite NULLs
+    # arrive as Python None which OrdinalEncoder treats as a valid category,
+    # not as NaN; this call ensures proper missing-value routing).
+    X_train = _sanitize_categoricals(X_train, PRERACE_CAT_COLS)
+    X_test = _sanitize_categoricals(X_test, PRERACE_CAT_COLS)
+
     # fit_transform on train, transform only on test — prevents data leakage
     X_train[PRERACE_CAT_COLS] = encoder.fit_transform(X_train[PRERACE_CAT_COLS])
     X_test[PRERACE_CAT_COLS] = encoder.transform(X_test[PRERACE_CAT_COLS])
@@ -450,6 +482,12 @@ def train_inrace_model(
     encoder = build_encoder(INRACE_CAT_COLS)
     X_train = train_df[INRACE_FEATURE_COLS].copy()
     X_test = test_df[INRACE_FEATURE_COLS].copy()
+
+    # Sanitize Python None → np.nan before OrdinalEncoder (CR-02: SQLite NULLs
+    # arrive as Python None which OrdinalEncoder treats as a valid category,
+    # not as NaN; this call ensures proper missing-value routing).
+    X_train = _sanitize_categoricals(X_train, INRACE_CAT_COLS)
+    X_test = _sanitize_categoricals(X_test, INRACE_CAT_COLS)
 
     # fit_transform on train, transform only on test — prevents data leakage (Pitfall 3)
     X_train[INRACE_CAT_COLS] = encoder.fit_transform(X_train[INRACE_CAT_COLS])
