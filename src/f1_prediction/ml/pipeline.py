@@ -544,21 +544,22 @@ def train_inrace_model(
     # Apply per-(session, lap) softmax so each lap group sums to 1.0 (D-10, INRACE-02)
     test_df["win_prob"] = per_session_softmax(test_df, "win_score", "session_lap_key")
 
-    # D-16: top-3 hit rate at final lap only — filter to max lap_number per session
+    # D-16: top-3 hit rate at multiple lap checkpoints (WR-06: final-lap-only
+    # evaluation hides poor mid-race calibration — the primary business value of
+    # the in-race model is mid-race prediction, not a final-lap post-hoc ranking).
     test_df["max_lap"] = test_df.groupby("session_key")["lap_number"].transform("max")
-    final_lap_df = test_df[test_df["lap_number"] == test_df["max_lap"]].copy()
 
-    rate, hits, total = compute_top3_hit_rate(
-        final_lap_df,
-        prob_col="win_prob",
-        label_col="label",
-        session_col="session_key",
-    )
-
-    # D-16: print metrics to stdout in the specified format
-    print(
-        f"inrace  log_loss={ll:.4f}  top3_hit_rate_final_lap={rate:.3f}  ({hits}/{total} races)"
-    )
+    print(f"inrace  log_loss={ll:.4f}")
+    for frac, label in [(0.25, "lap25pct"), (0.50, "lap50pct"), (1.0, "final_lap")]:
+        target_lap = (test_df["max_lap"] * frac).round().astype(int)
+        lap_df = test_df[test_df["lap_number"] == target_lap].copy()
+        if len(lap_df) > 0:
+            rate, hits, total = compute_top3_hit_rate(
+                lap_df, prob_col="win_prob", label_col="label", session_col="session_key"
+            )
+            print(
+                f"inrace  {label}  top3_hit_rate={rate:.3f}  ({hits}/{total} races)"
+            )
 
     # Step 9: Save artifact (D-11 dict contract — same 6-key shape as pre-race)
     artifact = save_artifact(
