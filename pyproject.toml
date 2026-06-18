@@ -11,6 +11,10 @@ dependencies = [
     "httpx==0.28.1",
     "sqlalchemy==2.0.51",
     "tenacity==9.1.4",
+    "xgboost>=3.0,<4.0",
+    "scikit-learn>=1.8,<2.0",
+    "scipy>=1.17,<2.0",
+    "joblib>=1.5,<2.0",
 ]
 
 [project.optional-dependencies]

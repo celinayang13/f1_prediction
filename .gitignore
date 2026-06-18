@@ -4,6 +4,9 @@
 *.db-shm
 data/f1.db*
 
+# ML model artifacts (generated at runtime — do not track in git, per D-12)
+data/models/
+
 # FastF1 cache (large binary files — do not commit)
 data/cache/**
 !data/cache/.gitkeep
