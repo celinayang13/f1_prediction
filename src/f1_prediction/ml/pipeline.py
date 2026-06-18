@@ -330,7 +330,8 @@ def train_prerace_model(
 
     if len(train_df) == 0:
         raise RuntimeError(
-            "features_prerace is empty — run scripts/backfill.py first"
+            "No training rows found for years <= 2024 in features_prerace. "
+            "Run: python scripts/backfill.py --years 2022 2023 2024"
         )
 
     if len(test_df) == 0:
@@ -479,7 +480,8 @@ def train_inrace_model(
 
     if len(train_df) == 0:
         raise RuntimeError(
-            "features_inrace is empty — run scripts/backfill.py first"
+            "No training rows found for years <= 2024 in features_inrace. "
+            "Run: python scripts/backfill.py --years 2022 2023 2024"
         )
 
     if len(test_df) == 0:
