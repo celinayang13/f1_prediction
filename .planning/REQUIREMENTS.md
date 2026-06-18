@@ -20,9 +20,9 @@
 
 ### In-race Model
 
-- [ ] **INRACE-01**: A separate in-race model is trained on mid-race states — current positions, gaps to leader, laps remaining, tyre compound and age, and pit stop history
-- [ ] **INRACE-02**: In-race model re-runs after each completed lap and outputs an updated win probability distribution
-- [ ] **INRACE-03**: In-race model incorporates live pit stop data (when drivers pit, tyre change)
+- [x] **INRACE-01**: A separate in-race model is trained on mid-race states — current positions, gaps to leader, laps remaining, tyre compound and age, and pit stop history
+- [x] **INRACE-02**: In-race model re-runs after each completed lap and outputs an updated win probability distribution
+- [x] **INRACE-03**: In-race model incorporates live pit stop data (when drivers pit, tyre change)
 
 ### Dashboard
 
@@ -70,9 +70,9 @@
 | PRERACE-01 | Phase 2 | Complete |
 | PRERACE-02 | Phase 2 | Complete |
 | PRERACE-03 | Phase 2 | Complete |
-| INRACE-01 | Phase 2 | Pending |
-| INRACE-02 | Phase 2 | Pending |
-| INRACE-03 | Phase 2 | Pending |
+| INRACE-01 | Phase 2 | Complete |
+| INRACE-02 | Phase 2 | Complete |
+| INRACE-03 | Phase 2 | Complete |
 | DASH-01 | Phase 3 | Pending |
 | DASH-02 | Phase 3 | Pending |
 | DASH-03 | Phase 3 | Pending |
