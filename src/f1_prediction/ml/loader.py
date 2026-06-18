@@ -40,7 +40,9 @@ PRERACE_FEATURE_COLS: list[str] = [
 # Only team_name for pre-race model (D-06).
 PRERACE_CAT_COLS: list[str] = ["team_name"]
 
-# PRERACE_TARGET: binary label column — 1 if driver won the race, 0 otherwise.
+# PRERACE_TARGET: source column for the training label (finish_position, integer 1-20).
+# The pipeline binarizes it as: label = (finish_position == 1).astype(int).
+# Do NOT use this column directly as a binary label.
 PRERACE_TARGET: str = "finish_position"
 
 
@@ -103,7 +105,9 @@ INRACE_FEATURE_COLS: list[str] = [
 # categorical in features_inrace).
 INRACE_CAT_COLS: list[str] = ["tyre_compound"]
 
-# INRACE_TARGET: binary label column — 1 if driver won the race, 0 otherwise.
+# INRACE_TARGET: source column for the training label (finish_position, integer 1-20).
+# The pipeline binarizes it as: label = (finish_position == 1).astype(int).
+# Do NOT use this column directly as a binary label.
 # NOTE: finish_position is NOT a column on features_inrace — it must be joined
 # from features_prerace on (session_key, driver_number) per RESEARCH Open Question Q1.
 INRACE_TARGET: str = "finish_position"
