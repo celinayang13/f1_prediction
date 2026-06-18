@@ -184,7 +184,19 @@ def calibrate_model(
     # least cv examples per class. With real data (~480 rows, ~24 winners) this
     # is always 5. With small test fixtures it gracefully reduces to 2.
     min_class_count = int(y_test.value_counts().min()) if hasattr(y_test, "value_counts") else n_samples
-    cv = min(5, max(2, min_class_count))
+    if min_class_count < 2:
+        # WR-02: with only 1 positive example, cv=2 will produce a fold with 0 winners
+        # and CalibratedClassifierCV will raise ValueError. Warn the operator and
+        # proceed — this scenario occurs when train.py is run before the 2nd 2025
+        # race is backfilled (only 1 race with finish_position == 1 in test set).
+        # Backfill at least 2 races with --years 2025 before training.
+        logger.warning(
+            "calibrate_model: only %d positive example(s) in test set — "
+            "CalibratedClassifierCV may raise ValueError; backfill at least "
+            "2 races with finish_position=1 before training",
+            min_class_count,
+        )
+    cv = min(5, min_class_count) if min_class_count >= 2 else 2
     if cv < 5:
         logger.debug(
             "calibrate_model: clamping cv to %d (min_class_count=%d, n_samples=%d)",
