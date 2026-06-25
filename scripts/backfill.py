@@ -36,15 +36,78 @@ import argparse
 import json
 import logging
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 # Ensure src/ is on the path for non-installed runs
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from sqlalchemy import text  # noqa: E402
+
+from f1_prediction.db.engine import get_engine  # noqa: E402
 from f1_prediction.features.builder import build_all_features  # noqa: E402
 from f1_prediction.ingest import fastf1_loader, openf1_loader  # noqa: E402
 
 logger = logging.getLogger(__name__)
+
+
+def fix_round_numbers(engine) -> None:
+    """
+    Derive round_number for OpenF1 sessions (year >= 2023) from meeting_key
+    rank within year.
+
+    OpenF1 /v1/sessions does not return a round_number field; the normalizer
+    falls back to 0.  This function ranks each unique meeting_key ascending
+    within its year (starting at 1) and writes the result back to raw_sessions.
+
+    Sessions sharing the same meeting_key (e.g. Q, FP2, FP3, R from the same
+    Grand Prix weekend) receive the same round_number.
+
+    This function is idempotent — re-running it always produces the same
+    round_number assignments because meeting_key order within a year is stable.
+
+    Security: all SQL uses sqlalchemy.text() with bound :param names (T-03-05).
+    """
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text(
+                """
+                SELECT session_key, year, meeting_key
+                FROM raw_sessions
+                WHERE year >= 2023 AND meeting_key IS NOT NULL
+                ORDER BY year, meeting_key
+                """
+            )
+        ).fetchall()
+
+        if not rows:
+            logger.info("fix_round_numbers: no 2023+ sessions with meeting_key found; nothing to update")
+            return
+
+        # Collect unique meeting_keys per year (preserving order from ORDER BY meeting_key)
+        year_meeting_keys: dict = defaultdict(list)
+        for _sk, year, mk in rows:
+            if mk not in year_meeting_keys[year]:
+                year_meeting_keys[year].append(mk)
+
+        # Build (year, meeting_key) → rank mapping
+        year_meeting_rank: dict = {}
+        for year, mks in year_meeting_keys.items():
+            for rank, mk in enumerate(sorted(set(mks)), start=1):
+                year_meeting_rank[(year, mk)] = rank
+
+        # Write round_number for each session
+        updated = 0
+        for sk, year, mk in rows:
+            rn = year_meeting_rank.get((year, mk), 0)
+            conn.execute(
+                text("UPDATE raw_sessions SET round_number = :rn WHERE session_key = :sk"),
+                {"rn": rn, "sk": sk},
+            )
+            updated += 1
+
+        n_years = len(year_meeting_keys)
+        logger.info("round_number fix applied to %d sessions across %d years", updated, n_years)
 
 
 def main() -> None:
@@ -145,6 +208,11 @@ def main() -> None:
                 "weather_inserted": r.get("weather_inserted", 0),
             }
             print(json.dumps(output))
+
+    # Fix round_number=0 for 2023+ sessions before feature build (D-01, Pitfall 1)
+    if any(y >= 2023 for y in args.years):
+        fix_round_numbers(get_engine())
+        logger.info("round_number fix applied for 2023+ sessions")
 
     # Feature builder: run after all sessions are backfilled (D-13)
     if args.skip_features:
