@@ -62,7 +62,22 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. The in-race model is trained on mid-race state features (current positions, gaps to leader, laps remaining, tyre compound and age, pit stop history); the artifact is saved to `data/models/inrace_model.joblib`
   4. Running the in-race model on a replayed historical race lap outputs an updated win probability distribution that reflects lap-by-lap changes
 
-**Plans:** TBD
+**Plans:** 4 plans
+**Wave 1**
+
+- [ ] 02-01-PLAN.md — Backfill extension (2022 r17-22 + 2023-2025 full) + round_number=0 fix + feature rebuild
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 02-02-PLAN.md — Pre-race XGBoost model end-to-end: scripts/train.py scaffold, --model prerace branch, calibration, sum-to-1, save prerace_model.joblib
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 02-03-PLAN.md — In-race XGBoost model end-to-end: --model inrace branch, tyre one-hot encoding, per-lap softmax, save inrace_model.joblib
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 02-04-PLAN.md — Validation: scripts/validate_model.py loads both artifacts, asserts sum-to-1 + Brier/log-loss on held-out 2024
 
 ### Phase 3: Prediction Pipeline & Dashboard
 
