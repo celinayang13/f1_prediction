@@ -21,7 +21,7 @@ Train two XGBoost models (pre-race and in-race) on Phase 1's feature tables and 
 
 ### Feature Set
 
-- **D-02:** Drop `team_name`, `circuit_avg_finish`, and `constructor_pace_delta` from the pre-race training feature set. All three are 100% NULL in the current DB. They add no signal and including them would mislead the model. Re-evaluate after the full backfill — `circuit_avg_finish` and `constructor_pace_delta` should become computable once 2022 data exists to feed 2023+ lookback windows.
+- **D-02 [informational]:** Drop `team_name`, `circuit_avg_finish`, and `constructor_pace_delta` from the pre-race training feature set. All three are 100% NULL in the current DB. They add no signal and including them would mislead the model. Re-evaluate after the full backfill — `circuit_avg_finish` and `constructor_pace_delta` should become computable once 2022 data exists to feed 2023+ lookback windows. *(Implicitly enforced by PRERACE_FEATURE_COLS in Plan 02-02; no explicit plan citation required.)*
 
 - **D-03:** The pre-race feature set for training is: `qualifying_delta_to_pole`, `practice_pace_fp2`, `practice_pace_fp3`, `circuit_win_rate`, `championship_position`, `grid_position`, `driver_seasons_in_f1`. Target: `is_winner = (finish_position == 1)` derived at training time.
 
@@ -43,7 +43,9 @@ Train two XGBoost models (pre-race and in-race) on Phase 1's feature tables and 
 
 ### Training Script Structure
 
-- **D-09 (Claude's discretion):** Single script `scripts/train.py` with a `--model prerace|inrace` flag. Both models share the same training infrastructure (CV, calibration, artifact saving). No hyperparameter search for v1 — use sensible defaults (n_estimators=500, learning_rate=0.05, max_depth=6, is_unbalance=true).
+- **D-09 (Claude's discretion):** Single script `scripts/train.py` with a `--model prerace|inrace` flag. Both models share the same training infrastructure (CV, calibration, artifact saving). No hyperparameter search for v1 — use sensible defaults (n_estimators=500, learning_rate=0.05, max_depth=6, scale_pos_weight=(n_neg/n_pos)).
+
+  **OVERRIDE (2026-06-24 — planning revision):** The original D-09 listed `is_unbalance=true` as a default. This is a **LightGBM-only parameter** and is **silently ignored by XGBoost** (RESEARCH.md Pitfall 7). Since D-06 locks the model framework to XGBoost, `is_unbalance=true` would be a no-op and the trained model would treat the extreme class imbalance (1 winner per ~20 drivers) as balanced — producing degenerate probability outputs. The correct XGBoost equivalent is `scale_pos_weight`, computed at train time as `(n_total - n_pos) / n_pos`. Plans 02-02 and 02-03 use `scale_pos_weight` instead of `is_unbalance`. This override is within Claude's discretion (D-09 is marked Claude's discretion) and the substitution is mandatory to make the imbalance handling actually take effect under the locked D-06 (XGBoost) framework choice.
 
 </decisions>
 

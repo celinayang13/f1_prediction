@@ -731,22 +731,22 @@ def validate_sum_to_one(model, X_val, session_keys, tolerance=0.001):
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Will `circuit_avg_finish` and `constructor_pace_delta` populate after full backfill?**
    - What we know: Both are 100% NULL currently (require 2022 data for 2023+ lookback). After backfill + feature rebuild, 2023 races should have 1 year of lookback data.
    - What's unclear: Exact NULL rate after backfill. `team_name` is still 100% NULL (root cause not diagnosed), which would still block `constructor_pace_delta`.
-   - Recommendation: After Plan 01 backfill + feature rebuild, check NULL rates on these columns. If < 30% NULL, consider re-including them (requires revisiting D-02).
+   - **RESOLVED:** Accept D-02 feature drop for Phase 2 — these columns stay out of the training feature set. Re-evaluate post-Phase 4 if model accuracy needs improvement.
 
 2. **What is the `team_name=100% NULL` root cause?**
    - What we know: `_get_team_name_from_session` in `builder.py` looks up team from prior `features_prerace` rows. Since the very first race ever processed (2022 round 1) has no prior data, team_name is NULL there. The builder is supposed to propagate it forward but currently doesn't.
    - What's unclear: Whether fixing the team_name lookup in builder.py is in scope for Plan 01, or if we simply accept it as NULL (D-02 already drops it from features).
-   - Recommendation: Leave as NULL per D-02. Investigate only if it blocks a future feature.
+   - **RESOLVED:** Leave `team_name` NULL per D-02 — it is already dropped from the training feature set. No in-scope fix. Investigate only if it blocks a future phase feature.
 
 3. **Should `practice_pace_fp3` NULL for sprint weekends be imputed?**
    - What we know: ~3–4 races per year are sprint weekends with no FP3. XGBoost handles these correctly with native NaN.
    - What's unclear: Whether the model should be told this NULL has semantic meaning ("this is a sprint weekend") via a boolean feature.
-   - Recommendation: Leave as NULL for Phase 2. A `is_sprint_weekend` flag could improve model accuracy but is out of scope.
+   - **RESOLVED:** Leave `practice_pace_fp3` NULL for Phase 2. XGBoost handles NaN natively (D-05 pattern). An `is_sprint_weekend` boolean feature is deferred to post-Phase 4 if needed.
 
 ---
 
