@@ -99,6 +99,10 @@ class OpenF1Client:
         Fetch a single OpenF1 endpoint with retry.
 
         Raises RateLimitedError on HTTP 429 to trigger tenacity retry.
+        Returns an empty list on HTTP 404 — OpenF1 returns 404 (not an empty
+        array) when no data exists for a query (e.g. /pit for a qualifying
+        session that has no pit stops). Treating 404 as [] is correct per
+        OpenF1 API semantics.
         Raises httpx.HTTPStatusError on other non-2xx responses.
 
         Security: logs URL and status only, never response body (T-02-03).
@@ -111,6 +115,12 @@ class OpenF1Client:
 
         if resp.status_code == 429:
             raise RateLimitedError(f"Rate limited on {url}")
+
+        # OpenF1 returns 404 when no data exists for a query (not an error —
+        # e.g. /pit returns 404 for qualifying sessions). Treat as empty list.
+        if resp.status_code == 404:
+            logger.debug("GET %s returned 404 — treating as empty result", url)
+            return []
 
         resp.raise_for_status()
         return resp.json()

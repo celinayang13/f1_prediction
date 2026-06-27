@@ -76,12 +76,14 @@ class RawSession(Base):
     gmt_offset = Column(String)
 
     __table_args__ = (
-        UniqueConstraint(
-            "year",
-            "round_number",
-            "session_type",
-            name="uq_raw_sessions_year_round_type",
-        ),
+        # NOTE: the (year, round_number, session_type) unique constraint was
+        # removed because OpenF1 sessions are inserted with round_number=0 (the
+        # API does not return a sequential round number).  Multiple sessions of
+        # the same type per year would all have round_number=0, causing
+        # IntegrityError on the second insert and blocking multi-round backfill.
+        # The session_key primary key already enforces row uniqueness.
+        # fix_round_numbers() in backfill.py derives correct round_numbers
+        # after all sessions for the year are fetched.
     )
 
 

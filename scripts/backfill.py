@@ -51,6 +51,74 @@ from f1_prediction.ingest import fastf1_loader, openf1_loader  # noqa: E402
 logger = logging.getLogger(__name__)
 
 
+def migrate_remove_year_round_type_constraint(engine) -> None:
+    """
+    One-time migration: drop the UNIQUE(year, round_number, session_type)
+    constraint from raw_sessions.
+
+    This constraint was added in Phase 1 as a defence against duplicate inserts
+    (D-11).  It is harmful for the OpenF1 backfill path because OpenF1's
+    /v1/sessions endpoint does not return a sequential round_number — the
+    normalizer falls back to 0, so every session from the same year and type
+    would collide on INSERT (only the first succeeds, all subsequent sessions
+    are silently skipped).
+
+    The session_key PRIMARY KEY already guarantees row uniqueness.
+    fix_round_numbers() corrects round_number values after all sessions for the
+    year are loaded.
+
+    SQLite does not support ALTER TABLE DROP CONSTRAINT.  The migration
+    recreates raw_sessions without the constraint.  The operation is atomic
+    (single transaction) and idempotent — if the constraint is already absent,
+    the function is a no-op.
+
+    Security: all SQL uses sqlalchemy.text() with no user-supplied parameters
+    (table/column names are hard-coded literals; T-03-05).
+    """
+    with engine.connect() as conn:
+        # Check whether the constraint still exists
+        sql_text = conn.execute(
+            text("SELECT sql FROM sqlite_master WHERE type='table' AND name='raw_sessions'")
+        ).scalar()
+        if sql_text is None or "uq_raw_sessions_year_round_type" not in sql_text:
+            logger.debug(
+                "migrate_remove_year_round_type_constraint: constraint already absent — skipping"
+            )
+            return
+
+    logger.info(
+        "migrate_remove_year_round_type_constraint: recreating raw_sessions without "
+        "UNIQUE(year, round_number, session_type)"
+    )
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE raw_sessions_new (
+                session_key INTEGER NOT NULL,
+                year INTEGER NOT NULL,
+                round_number INTEGER NOT NULL,
+                country_name VARCHAR,
+                circuit_short_name VARCHAR,
+                session_type VARCHAR NOT NULL,
+                session_name VARCHAR,
+                date_start VARCHAR,
+                date_end VARCHAR,
+                total_laps INTEGER,
+                source VARCHAR NOT NULL,
+                location VARCHAR,
+                meeting_key INTEGER,
+                circuit_key INTEGER,
+                gmt_offset VARCHAR,
+                PRIMARY KEY (session_key)
+            )
+        """))
+        conn.execute(text("INSERT INTO raw_sessions_new SELECT * FROM raw_sessions"))
+        conn.execute(text("DROP TABLE raw_sessions"))
+        conn.execute(text("ALTER TABLE raw_sessions_new RENAME TO raw_sessions"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_raw_sessions_year ON raw_sessions (year)"))
+
+    logger.info("migrate_remove_year_round_type_constraint: migration complete")
+
+
 def fix_round_numbers(engine) -> None:
     """
     Derive round_number for OpenF1 sessions (year >= 2023) from meeting_key
@@ -170,6 +238,12 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%S",
     )
+
+    # One-time schema migration: remove UNIQUE(year, round_number, session_type)
+    # which blocks multi-round OpenF1 backfill (all sessions have round_number=0
+    # from the API). Idempotent — no-op if already migrated.
+    if any(y >= 2023 for y in args.years):
+        migrate_remove_year_round_type_constraint(get_engine())
 
     had_error = False
 
