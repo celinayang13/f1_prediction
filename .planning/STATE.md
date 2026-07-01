@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 01
-current_phase_name: data-features
-status: planning
-stopped_at: Phase 2 context gathered
-last_updated: "2026-06-25T01:50:05.972Z"
-last_activity: 2026-06-17
-last_activity_desc: Phase 01 verification complete (all 5 ROADMAP SCs verified, 4 requirements satisfied, 34 tests pass, WAL mode confirmed)
+current_phase: 02
+current_phase_name: model-training
+status: executing
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-07-01T04:12:36.022Z"
+last_activity: 2026-06-25
+last_activity_desc: Phase 02 execution started
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 7
+  completed_plans: 4
   percent: 25
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** Show accurate, live-updating win probabilities for every driver during an F1 race weekend
-**Current focus:** Phase 02 — model training (Phase 01 verified complete)
+**Current focus:** Phase 02 — model-training
 
 ## Current Position
 
-Phase: 01 (data-features) — VERIFIED COMPLETE
-Plan: 3 of 3 (Plan 03 complete)
-Status: Phase 01 verified PASSED (5/5 success criteria, 34 tests) — ready to plan Phase 02
-Last activity: 2026-06-17 -- Phase 01 verification complete (all 5 ROADMAP SCs verified, 4 requirements satisfied, 34 tests pass, WAL mode confirmed)
+Phase: 02 (model-training) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-06-25 — Phase 02 execution started
 
 Progress: [██████████] 100% (Phase 01 complete and verified)
 
@@ -55,6 +55,7 @@ Progress: [██████████] 100% (Phase 01 complete and verified)
 - Trend: stable for auto tasks; TDD task longer as expected
 
 *Updated after each plan completion*
+| Phase 02 P01 | 480 | - tasks | - files |
 
 ## Accumulated Context
 
@@ -78,6 +79,9 @@ Recent decisions affecting current work:
 - 01-03: gap_to_leader approximated via cumsum(lap_duration) for historical data; live uses /v1/intervals
 - 01-03: poll_once accepts _is_active and _client injection params for test isolation
 - 01-03: team_name in features_prerace looked up from prior features_prerace rows; NULL for debut races
+- [Phase ?]: OpenF1 /pit returns HTTP 404 for no-pit-stop sessions — treated as empty list
+- [Phase ?]: UniqueConstraint on (year, round_number, session_type) removed via idempotent table-recreation migration
+- [Phase ?]: round_number derived from meeting_key rank-within-year for 2023+ sessions
 
 ### Pending Todos
 
@@ -99,6 +103,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-06-25T01:50:05.958Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-model-training/02-CONTEXT.md
+Last session: 2026-07-01T04:12:36.018Z
+Stopped at: Completed 02-01-PLAN.md
+Resume file: None

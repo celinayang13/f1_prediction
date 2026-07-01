@@ -14,15 +14,15 @@
 
 ### Pre-race Model
 
-- [ ] **PRERACE-01**: A pre-race model is trained on qualifying gap to pole, practice lap times, circuit-specific win history, constructor performance, and championship standings
+- [x] **PRERACE-01**: A pre-race model is trained on qualifying gap to pole, practice lap times, circuit-specific win history, constructor performance, and championship standings
 - [ ] **PRERACE-02**: Pre-race model outputs a win probability distribution across all ~20 drivers (probabilities sum to 1)
-- [ ] **PRERACE-03**: Pre-race probabilities are computed and available before lights out, using qualifying session data as primary input
+- [x] **PRERACE-03**: Pre-race probabilities are computed and available before lights out, using qualifying session data as primary input
 
 ### In-race Model
 
-- [ ] **INRACE-01**: A separate in-race model is trained on mid-race states — current positions, gaps to leader, laps remaining, tyre compound and age, and pit stop history
+- [x] **INRACE-01**: A separate in-race model is trained on mid-race states — current positions, gaps to leader, laps remaining, tyre compound and age, and pit stop history
 - [ ] **INRACE-02**: In-race model re-runs after each completed lap and outputs an updated win probability distribution
-- [ ] **INRACE-03**: In-race model incorporates live pit stop data (when drivers pit, tyre change)
+- [x] **INRACE-03**: In-race model incorporates live pit stop data (when drivers pit, tyre change)
 
 ### Dashboard
 
@@ -67,12 +67,12 @@
 | DATA-02 | Phase 1 | Complete |
 | DATA-03 | Phase 1 | Complete (Plan 03: APScheduler live poller, session window guard, dedupe) |
 | DATA-04 | Phase 1 | Complete |
-| PRERACE-01 | Phase 2 | Pending |
+| PRERACE-01 | Phase 2 | Complete |
 | PRERACE-02 | Phase 2 | Pending |
-| PRERACE-03 | Phase 2 | Pending |
-| INRACE-01 | Phase 2 | Pending |
+| PRERACE-03 | Phase 2 | Complete |
+| INRACE-01 | Phase 2 | Complete |
 | INRACE-02 | Phase 2 | Pending |
-| INRACE-03 | Phase 2 | Pending |
+| INRACE-03 | Phase 2 | Complete |
 | DASH-01 | Phase 3 | Pending |
 | DASH-02 | Phase 3 | Pending |
 | DASH-03 | Phase 3 | Pending |
