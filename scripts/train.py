@@ -130,6 +130,7 @@ def load_prerace_training(engine, max_year: int = 2024) -> pd.DataFrame:
 def train_prerace_model(
     df: pd.DataFrame,
     train_years: list[int],
+    cv: int = 5,
 ) -> CalibratedClassifierCV:
     """
     Train a calibrated XGBoost pre-race win probability classifier.
@@ -138,12 +139,15 @@ def train_prerace_model(
     ~20 drivers). CalibratedClassifierCV with isotonic regression converts
     raw XGBoost scores to calibrated probabilities.
 
-    CRITICAL: cv=5 (integer), NOT cv='prefit' (removed in scikit-learn 1.x).
+    CRITICAL: cv=5 (integer default), NOT cv='prefit' (removed in scikit-learn 1.x).
     CRITICAL: scale_pos_weight (XGBoost), NOT is_unbalance (LightGBM-only).
 
     Args:
         df: DataFrame from load_prerace_training.
         train_years: List of years to include in the training set.
+        cv: Number of cross-validation folds for CalibratedClassifierCV.
+            Default is 5 (production setting). Use cv=2 for test fixtures
+            with fewer than 5 examples per class.
 
     Returns:
         Fitted CalibratedClassifierCV wrapping an XGBClassifier.
@@ -178,7 +182,7 @@ def train_prerace_model(
         eval_metric="logloss",
         verbosity=0,
     )
-    model = CalibratedClassifierCV(base_clf, cv=5, method="isotonic")
+    model = CalibratedClassifierCV(base_clf, cv=cv, method="isotonic")
     model.fit(X_train, y_train)
     return model
 
@@ -308,7 +312,7 @@ def _train_prerace(args) -> None:
         int(df.loc[train_mask, "is_winner"].sum()),
     )
 
-    model = train_prerace_model(df, train_years)
+    model = train_prerace_model(df, train_years, cv=5)
 
     # Validation on held-out year
     val_df = df[val_mask].copy()
