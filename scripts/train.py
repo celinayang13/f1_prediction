@@ -100,11 +100,23 @@ def load_prerace_training(engine, max_year: int = 2024) -> pd.DataFrame:
                     CASE
                         WHEN fp.finish_position = 1
                          AND (
-                            SELECT MAX(rp2.lap_number)
-                            FROM raw_positions rp2
-                            WHERE rp2.session_key = fp.session_key
-                              AND rp2.driver_number = fp.driver_number
-                         ) >= rs.total_laps - 1
+                            -- Lap-completion filter (Pitfall 3 / Le Castellet 2022 DNF bug):
+                            -- FastF1 sessions have real lap numbers; apply strict check.
+                            -- OpenF1 sessions store lap_number=0 (API does not return it);
+                            -- when max_lap=0 there is no lap data, so trust finish_position.
+                            (SELECT MAX(rp2.lap_number)
+                             FROM raw_positions rp2
+                             WHERE rp2.session_key = fp.session_key
+                               AND rp2.driver_number = fp.driver_number) >= rs.total_laps - 1
+                            OR
+                            COALESCE(
+                              (SELECT MAX(rp2.lap_number)
+                               FROM raw_positions rp2
+                               WHERE rp2.session_key = fp.session_key
+                                 AND rp2.driver_number = fp.driver_number),
+                              0
+                            ) = 0
+                         )
                         THEN 1
                         ELSE 0
                     END AS is_winner,
@@ -332,7 +344,7 @@ def _train_prerace(args) -> None:
 
     metrics = {
         "model": "prerace",
-        "train_years": train_years,
+        "train_years": [int(y) for y in train_years],
         "val_year": int(args.val_year),
         "n_train": int(train_mask.sum()),
         "n_val": int(val_mask.sum()),
