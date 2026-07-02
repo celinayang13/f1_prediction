@@ -6,14 +6,14 @@ current_phase: 02
 current_phase_name: model-training
 status: executing
 stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-07-01T04:12:36.022Z"
+last_updated: "2026-07-02T20:13:44.218Z"
 last_activity: 2026-06-25
 last_activity_desc: Phase 02 execution started
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 7
-  completed_plans: 4
+  completed_plans: 5
   percent: 25
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 02 (model-training) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-06-25 — Phase 02 execution started
 
@@ -56,6 +56,7 @@ Progress: [██████████] 100% (Phase 01 complete and verified)
 
 *Updated after each plan completion*
 | Phase 02 P01 | 480 | - tasks | - files |
+| Phase 02 P02 | 30 | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -103,6 +104,12 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-07-01T04:12:36.018Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-07-02T20:10:32.431Z
+Stopped at: Completed 02-02-PLAN.md (pre-race model)
 Resume file: None
+
+## Phase 02 Plan 02 Decisions
+
+- OpenF1 raw_positions have lap_number=0 (API does not return lap number); is_winner SQL uses OR clause to trust finish_position when max_lap=0 (no lap data)
+- train_prerace_model exposes cv=5 as default param; production code passes cv=5 explicitly; tests use cv=2 for small fixtures
+- scale_pos_weight=18.74 for 1:19 class imbalance (XGBoost parameter, not is_unbalance which is LightGBM-only)

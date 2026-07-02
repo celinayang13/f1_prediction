@@ -15,7 +15,7 @@
 ### Pre-race Model
 
 - [x] **PRERACE-01**: A pre-race model is trained on qualifying gap to pole, practice lap times, circuit-specific win history, constructor performance, and championship standings
-- [ ] **PRERACE-02**: Pre-race model outputs a win probability distribution across all ~20 drivers (probabilities sum to 1)
+- [x] **PRERACE-02**: Pre-race model outputs a win probability distribution across all ~20 drivers (probabilities sum to 1)
 - [x] **PRERACE-03**: Pre-race probabilities are computed and available before lights out, using qualifying session data as primary input
 
 ### In-race Model
@@ -68,7 +68,7 @@
 | DATA-03 | Phase 1 | Complete (Plan 03: APScheduler live poller, session window guard, dedupe) |
 | DATA-04 | Phase 1 | Complete |
 | PRERACE-01 | Phase 2 | Complete |
-| PRERACE-02 | Phase 2 | Pending |
+| PRERACE-02 | Phase 2 | Complete |
 | PRERACE-03 | Phase 2 | Complete |
 | INRACE-01 | Phase 2 | Complete |
 | INRACE-02 | Phase 2 | Pending |
