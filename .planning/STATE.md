@@ -6,14 +6,14 @@ current_phase: 02
 current_phase_name: model-training
 status: executing
 stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-07-02T20:13:44.218Z"
+last_updated: "2026-07-03T00:29:37.692Z"
 last_activity: 2026-06-25
 last_activity_desc: Phase 02 execution started
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 7
-  completed_plans: 5
+  completed_plans: 6
   percent: 25
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 02 (model-training) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-06-25 — Phase 02 execution started
 
@@ -57,6 +57,7 @@ Progress: [██████████] 100% (Phase 01 complete and verified)
 *Updated after each plan completion*
 | Phase 02 P01 | 480 | - tasks | - files |
 | Phase 02 P02 | 30 | 3 tasks | 3 files |
+| Phase 02 P03 | 20 | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -83,6 +84,9 @@ Recent decisions affecting current work:
 - [Phase ?]: OpenF1 /pit returns HTTP 404 for no-pit-stop sessions — treated as empty list
 - [Phase ?]: UniqueConstraint on (year, round_number, session_type) removed via idempotent table-recreation migration
 - [Phase ?]: round_number derived from meeting_key rank-within-year for 2023+ sessions
+- [Phase ?]: Plan 02-03: encode_tyre_compound reindexes to canonical TYRE_COMPOUND_VALUES — absent compounds produce zero columns for stable model input schema
+- [Phase ?]: Plan 02-03: per-(session_key, lap_number) softmax applied in predict_inrace_with_softmax — each lap is a separate INRACE-02 inference event
+- [Phase ?]: Plan 02-03: scale_pos_weight=17.49 computed from in-race imbalance (1988 winners per 36756 lap rows)
 
 ### Pending Todos
 
@@ -104,7 +108,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-07-02T20:10:32.431Z
+Last session: 2026-07-03T00:29:14.524Z
 Stopped at: Completed 02-02-PLAN.md (pre-race model)
 Resume file: None
 
