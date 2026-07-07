@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 02
 current_phase_name: model-training
-status: executing
+status: verifying
 stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-07-03T00:29:37.692Z"
+last_updated: "2026-07-07T20:59:49.105Z"
 last_activity: 2026-06-25
 last_activity_desc: Phase 02 execution started
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 7
-  completed_plans: 6
-  percent: 25
+  completed_plans: 7
+  percent: 50
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 Phase: 02 (model-training) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-25 — Phase 02 execution started
 
 Progress: [██████████] 100% (Phase 01 complete and verified)
@@ -58,6 +58,7 @@ Progress: [██████████] 100% (Phase 01 complete and verified)
 | Phase 02 P01 | 480 | - tasks | - files |
 | Phase 02 P02 | 30 | 3 tasks | 3 files |
 | Phase 02 P03 | 20 | 3 tasks | 3 files |
+| Phase 02 P04 | 13 | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,8 @@ Recent decisions affecting current work:
 - [Phase ?]: Plan 02-03: encode_tyre_compound reindexes to canonical TYRE_COMPOUND_VALUES — absent compounds produce zero columns for stable model input schema
 - [Phase ?]: Plan 02-03: per-(session_key, lap_number) softmax applied in predict_inrace_with_softmax — each lap is a separate INRACE-02 inference event
 - [Phase ?]: Plan 02-03: scale_pos_weight=17.49 computed from in-race imbalance (1988 winners per 36756 lap rows)
+- 02-04: _assert_sums_within_tolerance extracted as module-level helper — violation path directly testable without mocking softmax
+- 02-04: validate_sum_to_one accepts raw_proba + group_keys args (not a model) — math testable without DB or model load
 
 ### Pending Todos
 
@@ -108,8 +111,8 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-07-03T00:29:14.524Z
-Stopped at: Completed 02-02-PLAN.md (pre-race model)
+Last session: 2026-07-07T21:00:00Z
+Stopped at: Completed 02-04-PLAN.md (model validation — Phase 02 complete)
 Resume file: None
 
 ## Phase 02 Plan 02 Decisions

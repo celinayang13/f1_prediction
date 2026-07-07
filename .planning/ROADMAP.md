@@ -16,7 +16,7 @@ Four phases take the project from an empty SQLite database to a live dashboard s
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Data & Features** - Historical backfill, live poller, and feature table populated with engineered race features
-- [ ] **Phase 2: Model Training** - Pre-race and in-race LightGBM models trained offline and serialized to disk
+- [x] **Phase 2: Model Training** - Pre-race and in-race LightGBM models trained offline and serialized to disk (completed 2026-07-07)
 - [ ] **Phase 3: Prediction Pipeline & Dashboard** - Inference wired into the poll loop; Dash dashboard showing live win probabilities
 - [ ] **Phase 4: Live Race Integration** - End-to-end smoke test against a real F1 race weekend session
 
@@ -62,7 +62,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. The in-race model is trained on mid-race state features (current positions, gaps to leader, laps remaining, tyre compound and age, pit stop history); the artifact is saved to `data/models/inrace_model.joblib`
   4. Running the in-race model on a replayed historical race lap outputs an updated win probability distribution that reflects lap-by-lap changes
 
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 **Wave 1**
 
 - [x] 02-01-PLAN.md — Backfill extension (2022 r17-22 + 2023-2025 full) + round_number=0 fix + feature rebuild
@@ -77,7 +77,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 02-04-PLAN.md — Validation: scripts/validate_model.py loads both artifacts, asserts sum-to-1 + Brier/log-loss on held-out 2024
+- [x] 02-04-PLAN.md — Validation: scripts/validate_model.py loads both artifacts, asserts sum-to-1 + Brier/log-loss on held-out 2024
 
 ### Phase 3: Prediction Pipeline & Dashboard
 
@@ -119,6 +119,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Data & Features | 3/3 | Complete | 2026-06-17 |
-| 2. Model Training | 3/4 | In Progress|  |
+| 2. Model Training | 4/4 | Complete   | 2026-07-07 |
 | 3. Prediction Pipeline & Dashboard | 0/TBD | Not started | - |
 | 4. Live Race Integration | 0/TBD | Not started | - |
