@@ -7,8 +7,11 @@ Pipeline entrypoint (D-01, D-06, D-09, D-11).
   2. Best-effort syncs driver metadata (raw_drivers) from OpenF1 /v1/drivers
      for that session (D-06) — never crashes startup if this fails.
   3. Computes pre-race win probabilities once per session, skipping if
-     'prerace' predictions already exist (D-11 idempotent restart), before
-     the in-race poll loop begins (documented TODO hook for a later plan).
+     'prerace' predictions already exist (D-11 idempotent restart).
+  4. Starts the in-race poll loop (reusing live/poller.py's BackgroundScheduler
+     pattern) with a post-poll inference hook: after each poll_once() call,
+     run_inference_after_poll() triggers in-race inference only when new laps
+     arrived (D-09).
 
 Security: all SQL uses text() with bound :param names — no f-string SQL (T-03-05).
 Driver fields are whitelist-extracted before insert (T-03-01) — the raw
@@ -18,14 +21,19 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
 from typing import Optional
 
+from apscheduler.events import EVENT_JOB_ERROR
+from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from f1_prediction.db.engine import get_engine
 from f1_prediction.db.upsert import bulk_insert_rows
+from f1_prediction.inference.inrace import compute_and_store_inrace_latest_lap
 from f1_prediction.inference.prerace import compute_and_store_prerace
+from f1_prediction.live.poller import poll_once
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +41,7 @@ __all__ = [
     "get_latest_race_session_key",
     "prerace_already_computed",
     "sync_drivers_for_session",
+    "run_inference_after_poll",
     "main",
 ]
 
@@ -143,6 +152,26 @@ def sync_drivers_for_session(engine: Engine, session_key: int) -> int:
         return 0
 
 
+def run_inference_after_poll(engine: Engine, session_key: int, poll_result: dict) -> int:
+    """
+    Post-poll inference hook (D-09): trigger in-race inference only when new
+    laps arrived during the last poll cycle.
+
+    Args:
+        engine: SQLAlchemy Engine.
+        session_key: Race session_key that was just polled.
+        poll_result: The dict returned by live/poller.py::poll_once — must
+            contain a "laps_inserted" key.
+
+    Returns:
+        Number of 'inrace' prediction rows inserted (0 if laps_inserted is
+        not > 0, i.e. a no-op).
+    """
+    if poll_result.get("laps_inserted", 0) > 0:
+        return compute_and_store_inrace_latest_lap(session_key, engine=engine)
+    return 0
+
+
 def main(*, engine: Optional[Engine] = None) -> None:
     """CLI entrypoint: `python -m src.f1_prediction.pipeline`."""
     logging.basicConfig(
@@ -174,11 +203,40 @@ def main(*, engine: Optional[Engine] = None) -> None:
             session_key,
         )
 
-    # TODO(Plan 03): start the in-race poll loop here — reuse live/poller.py's
-    # BackgroundScheduler, hook post-poll inference off poll_once()'s
-    # laps_inserted return value (Pattern 1: rebuild-then-slice via
-    # build_features_for_session(session_key, kind="inrace") + filter to
-    # MAX(lap_number), per D-09's startup-then-poll sequence).
+    # In-race poll loop (D-09): reuse live/poller.py's BackgroundScheduler
+    # pattern (max_instances=1, misfire_grace_time=15, EVENT_JOB_ERROR
+    # listener). After each poll_once() call, run_inference_after_poll()
+    # triggers in-race inference only when new laps arrived.
+    scheduler = BackgroundScheduler()
+
+    def _poll_and_infer_job():
+        result = poll_once(session_key, engine=engine)
+        run_inference_after_poll(engine, session_key, result)
+
+    def _on_error(event):
+        logger.error("pipeline poll job failed: %s", event.exception)
+
+    scheduler.add_listener(_on_error, EVENT_JOB_ERROR)
+    scheduler.add_job(
+        _poll_and_infer_job,
+        "interval",
+        seconds=30,
+        id="live_poll_and_infer",
+        max_instances=1,
+        misfire_grace_time=15,
+    )
+    scheduler.start()
+    logger.info(
+        "pipeline: in-race poll loop started for session %d (interval=30s)",
+        session_key,
+    )
+
+    try:
+        while True:
+            time.sleep(1)
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("pipeline: shutting down poll loop")
+        scheduler.shutdown(wait=False)
 
 
 if __name__ == "__main__":
