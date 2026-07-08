@@ -93,12 +93,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. The in-race tab auto-refreshes each lap and reflects updated probabilities without manual page reload
   5. The dashboard runs with no authentication and requires only `python -m src.f1_prediction.pipeline` and `python -m streamlit run src/f1_prediction/dashboard.py`
 
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 **UI hint:** yes
 
 **Wave 1**
 
-- [ ] 03-01-PLAN.md — Foundations: fix broken Streamlit install, reconcile pyproject deps, extract shared inference/features.py, add predictions + raw_drivers tables + OpenF1 drivers() client
+- [x] 03-01-PLAN.md — Foundations: fix broken Streamlit install, reconcile pyproject deps, extract shared inference/features.py, add predictions + raw_drivers tables + OpenF1 drivers() client
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -136,5 +136,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Data & Features | 3/3 | Complete | 2026-06-17 |
 | 2. Model Training | 4/4 | Complete    | 2026-07-07 |
-| 3. Prediction Pipeline & Dashboard | 0/4 | Planned | - |
+| 3. Prediction Pipeline & Dashboard | 1/4 | In Progress|  |
 | 4. Live Race Integration | 0/TBD | Not started | - |

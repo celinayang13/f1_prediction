@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 3
-current_phase_name: Prediction Pipeline & Dashboard
+current_phase: 03
+current_phase_name: prediction-pipeline-dashboard
 status: executing
-stopped_at: Phase 3 UI-SPEC approved
-last_updated: "2026-07-08T03:39:08.944Z"
-last_activity: 2026-07-07
-last_activity_desc: Phase 02 complete, transitioned to Phase 3
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-07-08T04:13:08.034Z"
+last_activity: 2026-07-08
+last_activity_desc: Phase 03 execution started
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 7
-  completed_plans: 7
+  total_plans: 11
+  completed_plans: 8
   percent: 50
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** Show accurate, live-updating win probabilities for every driver during an F1 race weekend
-**Current focus:** Phase 02 — model-training
+**Current focus:** Phase 03 — prediction-pipeline-dashboard
 
 ## Current Position
 
-Phase: 3 — Prediction Pipeline & Dashboard
-Plan: Not started
+Phase: 03 (prediction-pipeline-dashboard) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-07-07 — Phase 02 complete, transitioned to Phase 3
+Last activity: 2026-07-08 — Phase 03 execution started
 
 Progress: [██████████] 100% (Phase 01 complete and verified)
 
@@ -60,6 +60,7 @@ Progress: [██████████] 100% (Phase 01 complete and verified)
 | Phase 02 P02 | 30 | 3 tasks | 3 files |
 | Phase 02 P03 | 20 | 3 tasks | 3 files |
 | Phase 02 P04 | 13 | 3 tasks | 2 files |
+| Phase 03 P01 | 4 | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -91,6 +92,8 @@ Recent decisions affecting current work:
 - [Phase ?]: Plan 02-03: scale_pos_weight=17.49 computed from in-race imbalance (1988 winners per 36756 lap rows)
 - 02-04: _assert_sums_within_tolerance extracted as module-level helper — violation path directly testable without mocking softmax
 - 02-04: validate_sum_to_one accepts raw_proba + group_keys args (not a model) — math testable without DB or model load
+- 03-01: Upgraded streamlit/plotly via pip install --upgrade (not pinning altair<5) — resolves altair to compatible 5.x and unlocks st.fragment(run_every=...) needed by later plans
+- 03-01: Kept only fetch_drivers (not drivers) in openf1_client.py's __all__ — drivers is an instance method, not a module-level name; matches existing convention where stints/pit/laps/position/weather/intervals methods are also absent from __all__
 
 ### Pending Todos
 
@@ -112,9 +115,9 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-07-08T03:14:13.870Z
-Stopped at: Phase 3 UI-SPEC approved
-Resume file: .planning/phases/03-prediction-pipeline-dashboard/03-UI-SPEC.md
+Last session: 2026-07-08T04:13:08.030Z
+Stopped at: Completed 03-01-PLAN.md
+Resume file: None
 
 ## Phase 02 Plan 02 Decisions
 
