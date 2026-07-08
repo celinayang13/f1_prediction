@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 03
 current_phase_name: prediction-pipeline-dashboard
 status: executing
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-07-08T04:13:08.034Z"
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-07-08T04:22:59.085Z"
 last_activity: 2026-07-08
 last_activity_desc: Phase 03 execution started
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 11
-  completed_plans: 8
+  completed_plans: 9
   percent: 50
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 03 (prediction-pipeline-dashboard) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-07-08 — Phase 03 execution started
 
@@ -61,6 +61,7 @@ Progress: [██████████] 100% (Phase 01 complete and verified)
 | Phase 02 P03 | 20 | 3 tasks | 3 files |
 | Phase 02 P04 | 13 | 3 tasks | 2 files |
 | Phase 03 P01 | 4 | 3 tasks | 7 files |
+| Phase 03 P02 | 8min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -94,6 +95,9 @@ Recent decisions affecting current work:
 - 02-04: validate_sum_to_one accepts raw_proba + group_keys args (not a model) — math testable without DB or model load
 - 03-01: Upgraded streamlit/plotly via pip install --upgrade (not pinning altair<5) — resolves altair to compatible 5.x and unlocks st.fragment(run_every=...) needed by later plans
 - 03-01: Kept only fetch_drivers (not drivers) in openf1_client.py's __all__ — drivers is an instance method, not a module-level name; matches existing convention where stints/pit/laps/position/weather/intervals methods are also absent from __all__
+- [Phase ?]: 03-02: get_latest_race_session_key orders by session_key DESC alone (not year/round_number) — round_number is only reliably populated after backfill.py's fix_round_numbers() step
+- [Phase ?]: 03-02: dashboard_lib/queries.py imports pipeline.get_latest_race_session_key rather than duplicating the D-01 query — single source of truth shared by both processes
+- [Phase ?]: 03-02: load_prerace_predictions LEFT JOINs raw_drivers with a driver_number/gray-#888888 fallback for unmatched drivers, instead of hiding them or erroring
 
 ### Pending Todos
 
@@ -115,8 +119,8 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-07-08T04:13:08.030Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-07-08T04:22:59.081Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None
 
 ## Phase 02 Plan 02 Decisions
