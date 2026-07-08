@@ -19,6 +19,7 @@ from f1_prediction.dashboard_lib.charts import build_win_prob_bar_chart
 from f1_prediction.dashboard_lib.queries import (
     get_latest_race_session_key,
     get_race_display_name,
+    load_inrace_predictions,
     load_prerace_predictions,
 )
 
@@ -59,18 +60,53 @@ def render_prerace_tab(session_key: int) -> None:
     st.caption(f"Pre-race · computed {_format_time(latest_computed_at)}")
 
 
-def render_inrace_tab() -> None:
+@st.fragment(run_every=15)
+def render_inrace_tab(session_key: int) -> None:
     """
-    Placeholder for the In-Race tab — full auto-refreshing implementation
-    (D-07/D-08, st.fragment(run_every=15)) is built in a later plan.
+    Render the In-Race tab: LIVE badge, freshness line, team-colored bar
+    chart, and a side table (position/tyre/age/gap) — auto-refreshes every
+    15 seconds via st.fragment (D-07). No manual refresh control of any kind
+    is rendered (D-08). Dashboard remains strictly read-only (D-06).
     """
     st.subheader("In-Race Win Probability")
-    st.info(
-        "**Race hasn't started**\n\n"
-        "In-race probabilities begin updating once the first lap is "
-        "recorded. This tab refreshes automatically every 15 seconds — "
-        "no action needed."
+
+    df = load_inrace_predictions(session_key)
+
+    if df.empty:
+        st.info(
+            "**Race hasn't started**\n\n"
+            "In-race probabilities begin updating once the first lap is "
+            "recorded. This tab refreshes automatically every 15 seconds — "
+            "no action needed."
+        )
+        return
+
+    lap_number = int(df["lap_number"].iloc[0])
+    latest_computed_at = df["computed_at"].max()
+
+    st.markdown(
+        '<span style="background-color:#E10600; color:white; font-weight:600; '
+        'padding:2px 8px; border-radius:4px;">LIVE</span>',
+        unsafe_allow_html=True,
     )
+    st.caption(f"LIVE · Lap {lap_number} · updated {_format_time(latest_computed_at)}")
+
+    chart_df = df.rename(columns={"full_name": "label"})
+    fig = build_win_prob_bar_chart(chart_df)
+    st.plotly_chart(fig, use_container_width=True)
+
+    side_table = df[
+        ["full_name", "position", "tyre_compound", "tyre_age_laps", "gap_to_leader"]
+    ].rename(
+        columns={
+            "full_name": "Driver",
+            "position": "Position",
+            "tyre_compound": "Tyre",
+            "tyre_age_laps": "Tyre Age (laps)",
+            "gap_to_leader": "Gap to Leader (s)",
+        }
+    )
+    st.dataframe(side_table, use_container_width=True, hide_index=True)
 
 
 def main() -> None:
@@ -94,7 +130,7 @@ def main() -> None:
         render_prerace_tab(session_key)
 
     with tab_inrace:
-        render_inrace_tab()
+        render_inrace_tab(session_key)
 
 
 if __name__ == "__main__":

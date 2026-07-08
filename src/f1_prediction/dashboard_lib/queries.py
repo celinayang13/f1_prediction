@@ -25,6 +25,8 @@ __all__ = [
     "get_latest_race_session_key",
     "load_prerace_predictions",
     "get_race_display_name",
+    "load_inrace_predictions",
+    "get_latest_inrace_lap",
 ]
 
 # Neutral gray fallback when a driver has no raw_drivers match (no OpenF1
@@ -83,6 +85,87 @@ def load_prerace_predictions(session_key: int) -> pd.DataFrame:
     df["name_acronym"] = df["name_acronym"].fillna(df["driver_number"].astype(str))
     df["team_colour"] = df["team_colour"].fillna(_FALLBACK_TEAM_COLOUR)
     return df
+
+
+def load_inrace_predictions(session_key: int) -> pd.DataFrame:
+    """
+    Load the latest-lap 'inrace' predictions for a session, joined to
+    raw_drivers (display metadata) and features_inrace (side-table fields),
+    ordered by win_probability DESC.
+
+    Slices to MAX(lap_number) among 'inrace' predictions for this session so
+    only the most recent lap's probabilities are shown. Uses a LEFT JOIN to
+    raw_drivers (same fallback convention as load_prerace_predictions) and an
+    INNER JOIN to features_inrace on (session_key, driver_number, lap_number)
+    to pull position/tyre_compound/tyre_age_laps/gap_to_leader for the side
+    table (D-04).
+
+    Opens a fresh connection per call (Pattern 4) — never holds a Connection
+    across Streamlit fragment reruns, avoiding stale WAL snapshots.
+
+    Args:
+        session_key: Race session_key to load in-race predictions for.
+
+    Returns:
+        DataFrame with columns: driver_number, win_probability, lap_number,
+        computed_at, full_name, name_acronym, team_colour, position,
+        tyre_compound, tyre_age_laps, gap_to_leader. Empty DataFrame if no
+        'inrace' predictions exist yet for this session.
+    """
+    with _engine().connect() as conn:
+        df = pd.read_sql(
+            text(
+                "SELECT p.driver_number, p.win_probability, p.lap_number, "
+                "p.computed_at, d.full_name, d.name_acronym, d.team_colour, "
+                "fi.position, fi.tyre_compound, fi.tyre_age_laps, fi.gap_to_leader "
+                "FROM predictions p "
+                "LEFT JOIN raw_drivers d "
+                "  ON p.session_key = d.session_key "
+                " AND p.driver_number = d.driver_number "
+                "JOIN features_inrace fi "
+                "  ON p.session_key = fi.session_key "
+                " AND p.driver_number = fi.driver_number "
+                " AND p.lap_number = fi.lap_number "
+                "WHERE p.session_key = :sk AND p.prediction_type = 'inrace' "
+                "AND p.lap_number = ("
+                "  SELECT MAX(lap_number) FROM predictions "
+                "  WHERE session_key = :sk AND prediction_type = 'inrace'"
+                ") "
+                "ORDER BY p.win_probability DESC"
+            ),
+            conn,
+            params={"sk": session_key},
+        )
+
+    if df.empty:
+        return df
+
+    df["full_name"] = df["full_name"].fillna(df["driver_number"].astype(str))
+    df["name_acronym"] = df["name_acronym"].fillna(df["driver_number"].astype(str))
+    df["team_colour"] = df["team_colour"].fillna(_FALLBACK_TEAM_COLOUR)
+    return df
+
+
+def get_latest_inrace_lap(session_key: int) -> "int | None":
+    """
+    Return the MAX(lap_number) among 'inrace' predictions for a session, or
+    None if no in-race predictions exist yet (used for the freshness caption).
+
+    Args:
+        session_key: Race session_key to look up.
+
+    Returns:
+        The latest in-race lap_number, or None.
+    """
+    with _engine().connect() as conn:
+        row = conn.execute(
+            text(
+                "SELECT MAX(lap_number) FROM predictions "
+                "WHERE session_key = :sk AND prediction_type = 'inrace'"
+            ),
+            {"sk": session_key},
+        ).fetchone()
+    return int(row[0]) if row and row[0] is not None else None
 
 
 def get_race_display_name(session_key: int) -> Optional[str]:
