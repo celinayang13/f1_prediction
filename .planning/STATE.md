@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 03
 current_phase_name: prediction-pipeline-dashboard
 status: executing
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-07-08T04:22:59.085Z"
+stopped_at: Completed 03-03-PLAN.md
+last_updated: "2026-07-08T20:53:51.640Z"
 last_activity: 2026-07-08
 last_activity_desc: Phase 03 execution started
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 10
   percent: 50
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 ## Current Position
 
 Phase: 03 (prediction-pipeline-dashboard) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-07-08 — Phase 03 execution started
 
@@ -62,6 +62,7 @@ Progress: [██████████] 100% (Phase 01 complete and verified)
 | Phase 02 P04 | 13 | 3 tasks | 2 files |
 | Phase 03 P01 | 4 | 3 tasks | 7 files |
 | Phase 03 P02 | 8min | 3 tasks | 7 files |
+| Phase 03 P03 | 10min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 03-02: get_latest_race_session_key orders by session_key DESC alone (not year/round_number) — round_number is only reliably populated after backfill.py's fix_round_numbers() step
 - [Phase ?]: 03-02: dashboard_lib/queries.py imports pipeline.get_latest_race_session_key rather than duplicating the D-01 query — single source of truth shared by both processes
 - [Phase ?]: 03-02: load_prerace_predictions LEFT JOINs raw_drivers with a driver_number/gray-#888888 fallback for unmatched drivers, instead of hiding them or erroring
+- [Phase 03]: 03-03: inrace.py reindexes lap_number only once — it is already one of INRACE_NUMERIC_FEATURE_COLS's 9 columns; double-selecting it produced a 15-wide feature matrix and an XGBoost shape-mismatch error
+- [Phase 03]: 03-03: pipeline.py runs a single BackgroundScheduler job (poll_once then run_inference_after_poll) rather than a second scheduler, reusing live/poller.py's max_instances=1/misfire_grace_time=15/EVENT_JOB_ERROR conventions
+- [Phase 03]: 03-03: compute_and_store_inrace_latest_lap DELETE-then-INSERTs per (session_key, lap_number) to keep re-runs of the same lap idempotent
 
 ### Pending Todos
 
@@ -119,8 +123,8 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-07-08T04:22:59.081Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-07-08T20:53:51.637Z
+Stopped at: Completed 03-03-PLAN.md
 Resume file: None
 
 ## Phase 02 Plan 02 Decisions

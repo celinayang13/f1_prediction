@@ -93,7 +93,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. The in-race tab auto-refreshes each lap and reflects updated probabilities without manual page reload
   5. The dashboard runs with no authentication and requires only `python -m src.f1_prediction.pipeline` and `python -m streamlit run src/f1_prediction/dashboard.py`
 
-**Plans:** 2/4 plans executed
+**Plans:** 3/4 plans executed
 **UI hint:** yes
 
 **Wave 1**
@@ -106,7 +106,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 3** *(blocked on Wave 2)*
 
-- [ ] 03-03-PLAN.md — In-race slice: inference wired into poll loop (rebuild-then-slice) + dashboard In-Race tab (15s fragment auto-refresh, live bar chart + side table)
+- [x] 03-03-PLAN.md — In-race slice: inference wired into poll loop (rebuild-then-slice) + dashboard In-Race tab (15s fragment auto-refresh, live bar chart + side table)
 
 **Wave 4** *(blocked on Wave 3)*
 
@@ -136,5 +136,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Data & Features | 3/3 | Complete | 2026-06-17 |
 | 2. Model Training | 4/4 | Complete    | 2026-07-07 |
-| 3. Prediction Pipeline & Dashboard | 2/4 | In Progress|  |
+| 3. Prediction Pipeline & Dashboard | 3/4 | In Progress|  |
 | 4. Live Race Integration | 0/TBD | Not started | - |

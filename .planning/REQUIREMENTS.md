@@ -26,9 +26,9 @@
 
 ### Dashboard
 
-- [ ] **DASH-01**: Dashboard displays a live win probability bar chart with all drivers ranked by their current win probability
+- [x] **DASH-01**: Dashboard displays a live win probability bar chart with all drivers ranked by their current win probability
 - [x] **DASH-02**: Dashboard has a pre-race tab showing qualifying-based win probabilities before the race starts
-- [ ] **DASH-03**: Dashboard has an in-race tab that auto-refreshes each lap showing live-updating probabilities
+- [x] **DASH-03**: Dashboard has an in-race tab that auto-refreshes each lap showing live-updating probabilities
 - [x] **DASH-04**: Dashboard runs locally at localhost and requires no authentication
 
 ## v2 Requirements
@@ -73,9 +73,9 @@
 | INRACE-01 | Phase 2 | Complete |
 | INRACE-02 | Phase 2 | Complete |
 | INRACE-03 | Phase 2 | Complete |
-| DASH-01 | Phase 3 | Pending |
+| DASH-01 | Phase 3 | Complete |
 | DASH-02 | Phase 3 | Complete |
-| DASH-03 | Phase 3 | Pending |
+| DASH-03 | Phase 3 | Complete |
 | DASH-04 | Phase 3 | Complete |
 
 **Coverage:**
