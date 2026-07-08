@@ -10,6 +10,8 @@ This module defines the declarative Base and all raw-data models:
   - RawWeather      (table: raw_weather)
   - FeaturesPrerace (table: features_prerace)    [Plan 03]
   - FeaturesInrace  (table: features_inrace)     [Plan 03]
+  - Prediction      (table: predictions)         [Phase 3 Plan 01]
+  - RawDriver       (table: raw_drivers)          [Phase 3 Plan 01]
 
 Schema is created via `Base.metadata.create_all(engine)`. For Phase 1,
 schema changes are handled by deleting `data/f1.db` and re-backfilling
@@ -311,6 +313,79 @@ class FeaturesPrerace(Base):
 
     __table_args__ = (
         PrimaryKeyConstraint("session_key", "driver_number", name="pk_features_prerace"),
+    )
+
+
+class Prediction(Base):
+    """
+    Win probability prediction row (D-10).
+
+    Single discriminator table for both pre-race and in-race predictions —
+    the ONLY channel between the pipeline process (writer) and the dashboard
+    process (reader), communicating purely through SQLite in WAL mode.
+
+    prediction_type distinguishes the two prediction kinds:
+      'prerace' — one row per (session_key, driver_number), lap_number NULL
+      'inrace'  — one row per (session_key, driver_number, lap_number)
+
+    The CheckConstraint enforces prediction_type IN ('prerace', 'inrace')
+    at the DB layer (T-03-10) — malformed types are rejected at insert.
+    """
+
+    __tablename__ = "predictions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_key = Column(Integer, nullable=False, index=True)
+    driver_number = Column(Integer, nullable=False)
+    win_probability = Column(Float, nullable=False)
+    prediction_type = Column(String, nullable=False)
+    lap_number = Column(Integer)  # NULL for prerace rows
+    computed_at = Column(String, nullable=False)  # ISO 8601 string
+
+    __table_args__ = (
+        CheckConstraint(
+            "prediction_type IN ('prerace', 'inrace')",
+            name="ck_predictions_prediction_type",
+        ),
+        Index(
+            "ix_predictions_session_type_lap",
+            "session_key",
+            "prediction_type",
+            "lap_number",
+        ),
+    )
+
+
+class RawDriver(Base):
+    """
+    Driver metadata per session (D-06), sourced from OpenF1 /v1/drivers.
+
+    Fills the gap where driver_number is the only driver identity currently
+    stored anywhere in the DB — no full_name, name_acronym, or team_colour
+    source existed before this table.
+
+    team_colour stores the bare hex exactly as OpenF1 returns it, with no
+    '#' prefix (Pitfall 3) — the '#' is added at render time in the
+    dashboard, keeping this table a faithful mirror of the OpenF1 API
+    response (consistent with the project's raw_* sourcing convention).
+    """
+
+    __tablename__ = "raw_drivers"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_key = Column(Integer, nullable=False)
+    driver_number = Column(Integer, nullable=False)
+    full_name = Column(String)
+    name_acronym = Column(String)
+    team_name = Column(String)
+    team_colour = Column(String)  # bare hex, no '#' prefix (Pitfall 3)
+
+    __table_args__ = (
+        Index(
+            "ix_raw_drivers_session_driver",
+            "session_key",
+            "driver_number",
+        ),
     )
 
 

@@ -42,6 +42,7 @@ __all__ = [
     "fetch_positions",
     "fetch_weather",
     "fetch_intervals",
+    "fetch_drivers",
 ]
 
 
@@ -161,6 +162,10 @@ class OpenF1Client:
         """Fetch intervals from /v1/intervals for a session."""
         return await self._fetch("intervals", {"session_key": session_key})
 
+    async def drivers(self, session_key: int) -> list[dict]:
+        """Fetch driver metadata from /v1/drivers for a session."""
+        return await self._fetch("drivers", {"session_key": session_key})
+
 
 # ---------------------------------------------------------------------------
 # Synchronous convenience functions (thin asyncio.run wrappers)
@@ -219,4 +224,12 @@ def fetch_intervals(session_key: int) -> list[dict]:
     async def _run():
         async with OpenF1Client() as c:
             return await c.intervals(session_key=session_key)
+    return asyncio.run(_run())
+
+
+def fetch_drivers(session_key: int) -> list[dict]:
+    """Fetch driver metadata synchronously. Opens a fresh client per call."""
+    async def _run():
+        async with OpenF1Client() as c:
+            return await c.drivers(session_key=session_key)
     return asyncio.run(_run())
