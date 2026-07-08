@@ -4,17 +4,17 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 03
 current_phase_name: prediction-pipeline-dashboard
-status: executing
-stopped_at: Completed 03-03-PLAN.md
-last_updated: "2026-07-08T20:53:51.640Z"
+status: verifying
+stopped_at: Completed 03-04-PLAN.md
+last_updated: "2026-07-08T22:03:27.716Z"
 last_activity: 2026-07-08
 last_activity_desc: Phase 03 execution started
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 11
-  completed_plans: 10
-  percent: 50
+  completed_plans: 11
+  percent: 75
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-06-16)
 
 Phase: 03 (prediction-pipeline-dashboard) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-08 — Phase 03 execution started
 
 Progress: [██████████] 100% (Phase 01 complete and verified)
@@ -63,6 +63,7 @@ Progress: [██████████] 100% (Phase 01 complete and verified)
 | Phase 03 P01 | 4 | 3 tasks | 7 files |
 | Phase 03 P02 | 8min | 3 tasks | 7 files |
 | Phase 03 P03 | 10min | 3 tasks | 4 files |
+| Phase 03 P04 | 25min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,9 @@ Recent decisions affecting current work:
 - [Phase 03]: 03-03: inrace.py reindexes lap_number only once — it is already one of INRACE_NUMERIC_FEATURE_COLS's 9 columns; double-selecting it produced a 15-wide feature matrix and an XGBoost shape-mismatch error
 - [Phase 03]: 03-03: pipeline.py runs a single BackgroundScheduler job (poll_once then run_inference_after_poll) rather than a second scheduler, reusing live/poller.py's max_instances=1/misfire_grace_time=15/EVENT_JOB_ERROR conventions
 - [Phase 03]: 03-03: compute_and_store_inrace_latest_lap DELETE-then-INSERTs per (session_key, lap_number) to keep re-runs of the same lap idempotent
+- [Phase 03-04]: get_latest_race_session_key orders by date_start DESC not session_key DESC — fixes stale 2022 race resolution (2022 FastF1 session_keys numerically exceed 2023+ OpenF1 session_keys)
+- [Phase 03-04]: .streamlit/config.toml pins [server] address=localhost — streamlit's actual runtime default under --server.headless true binds all interfaces despite docstring claiming localhost-only
+- [Phase 03-04]: replay_race.py in-place replay stages a full backup under session_key+900_000_000_000 before clearing/rebuilding, with restore-on-interrupt, so Ctrl-C never leaves the source race incomplete
 
 ### Pending Todos
 
@@ -123,8 +127,8 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-07-08T20:53:51.637Z
-Stopped at: Completed 03-03-PLAN.md
+Last session: 2026-07-08T22:03:27.712Z
+Stopped at: Completed 03-04-PLAN.md
 Resume file: None
 
 ## Phase 02 Plan 02 Decisions

@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Data & Features** - Historical backfill, live poller, and feature table populated with engineered race features
 - [x] **Phase 2: Model Training** - Pre-race and in-race LightGBM models trained offline and serialized to disk (completed 2026-07-07)
-- [ ] **Phase 3: Prediction Pipeline & Dashboard** - Inference wired into the poll loop; Dash dashboard showing live win probabilities
+- [x] **Phase 3: Prediction Pipeline & Dashboard** - Inference wired into the poll loop; Dash dashboard showing live win probabilities (completed 2026-07-08)
 - [ ] **Phase 4: Live Race Integration** - End-to-end smoke test against a real F1 race weekend session
 
 ## Phase Details
@@ -93,7 +93,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. The in-race tab auto-refreshes each lap and reflects updated probabilities without manual page reload
   5. The dashboard runs with no authentication and requires only `python -m src.f1_prediction.pipeline` and `python -m streamlit run src/f1_prediction/dashboard.py`
 
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 **UI hint:** yes
 
 **Wave 1**
@@ -110,7 +110,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 4** *(blocked on Wave 3)*
 
-- [ ] 03-04-PLAN.md — Replay dev tool (D-02/D-03) + end-to-end human verification of the live chain
+- [x] 03-04-PLAN.md — Replay dev tool (D-02/D-03) + end-to-end human verification of the live chain
 
 ### Phase 4: Live Race Integration
 
@@ -136,5 +136,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Data & Features | 3/3 | Complete | 2026-06-17 |
 | 2. Model Training | 4/4 | Complete    | 2026-07-07 |
-| 3. Prediction Pipeline & Dashboard | 3/4 | In Progress|  |
+| 3. Prediction Pipeline & Dashboard | 4/4 | Complete   | 2026-07-08 |
 | 4. Live Race Integration | 0/TBD | Not started | - |
