@@ -57,10 +57,15 @@ def get_latest_race_session_key(engine: Engine) -> "int | None":
     """
     Resolve the most recent Race-type session_key (D-01).
 
-    Orders by session_key DESC alone — OpenF1 session_keys are server-assigned
-    and monotonically increasing, while round_number is only reliably
-    populated after backfill.py's fix_round_numbers() step runs (RESEARCH A4),
-    which may not have happened yet for a freshly-polled session.
+    Orders by date_start DESC rather than session_key DESC. FastF1-synthesized
+    2022 session_keys (year*100_000 + round*100 + session_type_code) are
+    numerically larger than real OpenF1 2023+ session_keys (small sequential
+    server-assigned integers), so a raw session_key DESC ordering always
+    resolves to a stale 2022 session instead of the true latest race —
+    verified against the project DB (session_key DESC picks 202202207 / 2022
+    Abu Dhabi over any 2023-2025 race). date_start is populated as an ISO 8601
+    string by both FastF1 and OpenF1 ingestion paths and sorts correctly
+    across both session_key schemes.
 
     Args:
         engine: SQLAlchemy Engine.
@@ -73,7 +78,7 @@ def get_latest_race_session_key(engine: Engine) -> "int | None":
             text(
                 "SELECT session_key FROM raw_sessions "
                 "WHERE session_type = 'Race' "
-                "ORDER BY session_key DESC LIMIT 1"
+                "ORDER BY date_start DESC LIMIT 1"
             )
         ).fetchone()
     return int(row[0]) if row else None
