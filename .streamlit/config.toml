@@ -1,2 +1,13 @@
 [theme]
 base = "dark"
+
+[server]
+# DASH-04 / T-03-02: dashboard.py's own docstring documents that the app
+# "binds to localhost only by default" — but streamlit's actual runtime
+# default (observed empirically: `streamlit run ... --server.headless true`
+# without this setting bound to `*:8501` / all interfaces, confirmed via
+# `lsof`) does NOT match that claim. Pinning server.address here makes the
+# documented invariant true regardless of --server.headless or how the app
+# is launched, instead of relying on remembering a --server.address flag
+# every time.
+address = "localhost"
