@@ -73,3 +73,35 @@ has run) — then backfill `features_prerace` for 2022 rounds 17-22 via
 the human verifier can decide how to proceed (pick session `202202207` for
 a partial demo, authorize a fix to `get_latest_race_session_key` first, or
 backfill the missing 2022 features).
+
+**Resolution:** Fixed during Plan 04 execution (Rule 1 deviation, commit
+`ece53d9`) — `get_latest_race_session_key` now orders by `date_start DESC`
+instead of `session_key DESC`, so it correctly resolves to session `9839`
+(2025, round 23, United Arab Emirates) rather than the stale 2022 session.
+This item is retained above for historical context; see the SUMMARY.md
+"Deviations" section for the applied fix.
+
+## 2. `raw_positions` is empty for session 9839 (the now-current "latest race")
+
+**Found during:** Plan 04, Task 2 human verification — after the
+`get_latest_race_session_key` fix (item 1) started resolving to session
+`9839` (2025 round 23, United Arab Emirates), verified that session's
+`raw_positions` table has 0 rows (`raw_laps` has 1156 rows for the same
+session). This is a pre-existing backfill gap, not something introduced by
+Plan 04 or by the `get_latest_race_session_key` fix, and no file in this
+plan's `files_modified` list touches ingestion — out of scope to backfill
+here.
+
+**Impact:** The In-Race tab's side table columns that read from
+`raw_positions` (current position) will be empty/fallback for session
+`9839` specifically, until this session is re-backfilled. This did not
+block Task 2's checkpoint — the human verifier used
+`--source-session-key 202202207` (which does have full `raw_positions`
+data) to demonstrate the live lap-by-lap chain, matching how the earlier
+`get_latest_race_session_key` blocker was worked around.
+
+**Suggested fix (not applied — out of scope for Plan 04):** Re-run
+`scripts/backfill.py` targeted at session `9839` (or its meeting/round) to
+populate `raw_positions`.
+
+**Status:** Deferred to a future backfill pass.
