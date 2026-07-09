@@ -12,16 +12,15 @@ Show accurate, live-updating win probabilities for every driver during an F1 rac
 
 ### Validated
 
-(None yet — ship to validate)
+- [x] Generate a pre-race win probability distribution before lights out, using qualifying results as primary input — Validated in Phase 03: prediction-pipeline-dashboard
+- [x] Update win probability distribution live during the race using real-time lap positions, gaps, and pit stop/tyre data — Validated in Phase 03: prediction-pipeline-dashboard
+- [x] Display win probabilities in a local web dashboard that refreshes during a live race — Validated in Phase 03: prediction-pipeline-dashboard
+- [x] Dashboard shows all drivers ranked by win probability with a visual representation (bar/chart) — Validated in Phase 03: prediction-pipeline-dashboard
 
 ### Active
 
 - [ ] Fetch and store historical F1 race data (2022–2025) via OpenF1 API
 - [ ] Train an ML model on qualifying pace, practice times, circuit history, tyre strategy, car/constructor data, and championship standings
-- [ ] Generate a pre-race win probability distribution before lights out, using qualifying results as primary input
-- [ ] Update win probability distribution live during the race using real-time lap positions, gaps, and pit stop/tyre data
-- [ ] Display win probabilities in a local web dashboard that refreshes during a live race
-- [ ] Dashboard shows all drivers ranked by win probability with a visual representation (bar/chart)
 
 ### Out of Scope
 
@@ -52,8 +51,8 @@ Show accurate, live-updating win probabilities for every driver during an F1 rac
 | FastF1 (2022) + OpenF1 (2023–2025 + live) | OpenF1 only covers 2023+; FastF1 fills 2022 gap; OpenF1 is the only live race-day option | — Pending |
 | 2022–2025 training window | Ground-effect era = consistent car behavior, most predictive for current season | — Pending |
 | Win probability distribution (not single pick) | More informative, captures uncertainty, better for dashboard visualization | — Pending |
-| XGBoost + Streamlit over LightGBM + Dash | User preference; widely known ecosystem, st.rerun() sufficient for lap-by-lap refresh cadence | — Pending |
-| Local deployment first | Fastest path to a working tool; hosting added later if wanted | — Pending |
+| XGBoost + Streamlit over LightGBM + Dash | User preference; widely known ecosystem, st.rerun() sufficient for lap-by-lap refresh cadence | Validated in Phase 03 — Streamlit dashboard built, live-tested end-to-end (pre-race + auto-refreshing in-race tabs) |
+| Local deployment first | Fastest path to a working tool; hosting added later if wanted | Validated in Phase 03 — dashboard confirmed localhost-only bind, no external exposure, no auth |
 | Multinomial model framing (not 20 binary classifiers) | 1:19 class imbalance; single softmax over all drivers is the correct formulation | — Pending |
 
 ## Evolution
@@ -74,4 +73,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-16 after initialization*
+*Last updated: 2026-07-09 after Phase 03 (prediction-pipeline-dashboard) completion*
