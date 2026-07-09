@@ -353,6 +353,13 @@ class Prediction(Base):
             "prediction_type",
             "lap_number",
         ),
+        UniqueConstraint(
+            "session_key",
+            "driver_number",
+            "prediction_type",
+            "lap_number",
+            name="uq_predictions_session_driver_type_lap",
+        ),
     )
 
 
