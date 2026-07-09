@@ -131,7 +131,7 @@ One intentional stub:
 
 No new threat surface introduced. All SQL uses `sqlalchemy.text()` with bound `:max_year` param (T-03-05). The model artifact (`data/models/prerace_model.joblib`) is local-only and never loaded from an untrusted source in this phase. See plan threat register T-02-02-01 through T-02-02-04.
 
-## Self-Check: PASSED
+## Self-Check: PASSED (verified)
 
 - `scripts/train.py` exists at expected path: FOUND
 - `tests/test_train.py` exists at expected path: FOUND
