@@ -19,7 +19,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from f1_prediction.db.engine import get_engine
-from f1_prediction.pipeline import get_latest_race_session_key as _get_latest_race_session_key
+from f1_prediction.db.queries import get_latest_race_session_key as _get_latest_race_session_key
 
 __all__ = [
     "get_latest_race_session_key",
@@ -41,7 +41,12 @@ def _engine() -> Engine:
 
 
 def get_latest_race_session_key() -> "int | None":
-    """Resolve the latest Race-type session_key (reuses pipeline.py's D-01 query)."""
+    """
+    Resolve the latest Race-type session_key (reuses db/queries.py's D-01
+    query, shared with pipeline.py — WR-03: this module must not import
+    pipeline.py directly, since that pulls in APScheduler/live-poller/
+    inference deps the dashboard process never needs).
+    """
     return _get_latest_race_session_key(_engine())
 
 

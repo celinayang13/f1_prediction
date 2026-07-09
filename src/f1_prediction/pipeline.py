@@ -30,6 +30,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from f1_prediction.db.engine import get_engine
+from f1_prediction.db.queries import get_latest_race_session_key
 from f1_prediction.db.upsert import bulk_insert_rows
 from f1_prediction.inference.inrace import compute_and_store_inrace_latest_lap
 from f1_prediction.inference.prerace import compute_and_store_prerace
@@ -51,37 +52,6 @@ _DRIVER_FIELDS = [
     "session_key", "driver_number", "full_name", "name_acronym",
     "team_name", "team_colour",
 ]
-
-
-def get_latest_race_session_key(engine: Engine) -> "int | None":
-    """
-    Resolve the most recent Race-type session_key (D-01).
-
-    Orders by date_start DESC rather than session_key DESC. FastF1-synthesized
-    2022 session_keys (year*100_000 + round*100 + session_type_code) are
-    numerically larger than real OpenF1 2023+ session_keys (small sequential
-    server-assigned integers), so a raw session_key DESC ordering always
-    resolves to a stale 2022 session instead of the true latest race —
-    verified against the project DB (session_key DESC picks 202202207 / 2022
-    Abu Dhabi over any 2023-2025 race). date_start is populated as an ISO 8601
-    string by both FastF1 and OpenF1 ingestion paths and sorts correctly
-    across both session_key schemes.
-
-    Args:
-        engine: SQLAlchemy Engine.
-
-    Returns:
-        The latest Race session_key, or None if no Race session exists.
-    """
-    with engine.connect() as conn:
-        row = conn.execute(
-            text(
-                "SELECT session_key FROM raw_sessions "
-                "WHERE session_type = 'Race' "
-                "ORDER BY date_start DESC LIMIT 1"
-            )
-        ).fetchone()
-    return int(row[0]) if row else None
 
 
 def prerace_already_computed(engine: Engine, session_key: int) -> bool:
