@@ -20,6 +20,7 @@ OpenF1 response dict is never inserted directly.
 from __future__ import annotations
 
 import logging
+import signal
 import sys
 import time
 from typing import Optional
@@ -147,6 +148,20 @@ def run_inference_after_poll(engine: Engine, session_key: int, poll_result: dict
     return 0
 
 
+def _handle_sigterm(signum, frame) -> None:
+    """
+    Translate SIGTERM into SystemExit (WR-05).
+
+    Python does not raise KeyboardInterrupt on SIGTERM by default (only
+    SIGINT/Ctrl-C does). Process managers (systemd, Docker, a supervisor
+    script) stop long-running background processes with SIGTERM — without
+    this handler, main()'s `except (KeyboardInterrupt, SystemExit)` never
+    runs and the BackgroundScheduler's in-flight poll/write job gets killed
+    abruptly by the OS instead of via scheduler.shutdown(wait=False).
+    """
+    raise SystemExit(0)
+
+
 def main(*, engine: Optional[Engine] = None) -> None:
     """CLI entrypoint: `python -m src.f1_prediction.pipeline`."""
     logging.basicConfig(
@@ -154,6 +169,8 @@ def main(*, engine: Optional[Engine] = None) -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%S",
     )
+
+    signal.signal(signal.SIGTERM, _handle_sigterm)
 
     if engine is None:
         engine = get_engine()
