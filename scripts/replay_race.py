@@ -63,6 +63,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import signal
 import sys
 import time
 from pathlib import Path
@@ -400,8 +401,26 @@ def replay_lap(
     }
 
 
+def _handle_sigterm(signum, frame) -> None:
+    """
+    Translate SIGTERM into SystemExit (mirrors pipeline.py's WR-05 fix).
+
+    Python does not raise KeyboardInterrupt on SIGTERM by default (only
+    SIGINT/Ctrl-C does). Without this handler, a SIGTERM (e.g. `kill`,
+    `pkill`, a process manager, or a closing terminal) kills the process
+    immediately with no cleanup — main()'s `except BaseException` restore
+    loop never runs, and an in-place replay's staging backup is left
+    stranded while the real session's raw_* rows sit cleared/partially
+    rebuilt. Raising SystemExit here lets that existing restore path run
+    exactly as it does for Ctrl-C.
+    """
+    raise SystemExit(0)
+
+
 def main() -> None:
     """CLI entrypoint for the replay dev tool (D-02, D-03)."""
+    signal.signal(signal.SIGTERM, _handle_sigterm)
+
     parser = argparse.ArgumentParser(
         description=(
             "Replay a completed historical race's raw_* rows into the raw_* "

@@ -240,3 +240,19 @@ def test_inplace_replay_keeps_staging_if_restore_incomplete(tmp_engine):
         "staging backup must remain fully intact (not cleared) when the "
         "restore loop did not complete"
     )
+
+
+def test_handle_sigterm_raises_systemexit():
+    """
+    _handle_sigterm must convert SIGTERM into SystemExit (not silently kill
+    the process), so main()'s `except BaseException` restore loop still
+    runs on SIGTERM the same way it already does for Ctrl-C/KeyboardInterrupt.
+    Without this, a `kill`/`pkill`/process-manager SIGTERM bypasses the
+    entire crash-recovery path added for CR-01, stranding an in-place
+    replay's staging backup while the real session's data sits cleared.
+    """
+    try:
+        replay_race._handle_sigterm(15, None)
+        assert False, "_handle_sigterm should have raised SystemExit"
+    except SystemExit as exc:
+        assert exc.code == 0
