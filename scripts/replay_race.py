@@ -488,6 +488,12 @@ def main() -> None:
         len(lap_numbers), source_sk, target_sk, args.interval,
     )
 
+    # Tracks whether it is safe to delete the staging backup: either the
+    # replay ran to normal completion (nothing to restore), or an interrupt
+    # occurred and the restore loop below attempted every lap. The staging
+    # backup must never be cleared unless one of these is true, since it is
+    # the only copy of the original data during in-place replay.
+    safe_to_clear_staging = staging_sk is None
     try:
         try:
             for lap_number in lap_numbers:
@@ -501,6 +507,7 @@ def main() -> None:
                         lap_number, exc,
                     )
                 time.sleep(args.interval)
+            safe_to_clear_staging = True
         except BaseException:
             if staging_sk is not None:
                 logger.warning(
@@ -508,15 +515,29 @@ def main() -> None:
                     "%d before exit",
                     len(lap_numbers), target_sk,
                 )
+                # Catch BaseException (not just Exception) per lap so a second
+                # Ctrl-C (KeyboardInterrupt) during the restore loop cannot
+                # abort partway through — every lap must be attempted before
+                # the staging backup is allowed to be cleared below.
                 for lap_number in lap_numbers:
                     try:
                         replay_lap(engine, read_sk, target_sk, lap_number)
-                    except Exception:
+                    except BaseException:
                         logger.exception("replay_race: failed to restore lap %d", lap_number)
+                safe_to_clear_staging = True
             raise
     finally:
         if staging_sk is not None:
-            _clear_staging(engine, staging_sk)
+            if safe_to_clear_staging:
+                _clear_staging(engine, staging_sk)
+            else:
+                logger.error(
+                    "replay_race: restore did not complete — leaving staging "
+                    "session %d in place so no data is lost; re-run replay_race "
+                    "against session %d to finish recovery, or manually inspect "
+                    "staging session %d.",
+                    staging_sk, target_sk, staging_sk,
+                )
 
     logger.info("replay_race: replay complete for session %d (%d laps)", target_sk, len(lap_numbers))
 
