@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 4
-current_phase_name: Live Race Integration
-status: executing
+current_phase: 04
+current_phase_name: live-race-integration
+status: verifying
 stopped_at: Phase 4 context gathered
-last_updated: "2026-07-09T15:09:21.236Z"
+last_updated: "2026-07-09T17:53:28.360Z"
 last_activity: 2026-07-09
-last_activity_desc: Phase 03 complete, transitioned to Phase 4
+last_activity_desc: Phase 04 execution started
 progress:
   total_phases: 4
-  completed_phases: 3
-  total_plans: 11
-  completed_plans: 11
-  percent: 75
+  completed_phases: 4
+  total_plans: 12
+  completed_plans: 12
+  percent: 100
 ---
 
 # Project State
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-16)
 
 **Core value:** Show accurate, live-updating win probabilities for every driver during an F1 race weekend
-**Current focus:** Phase 03 — prediction-pipeline-dashboard
+**Current focus:** Phase 04 — live-race-integration
 
 ## Current Position
 
-Phase: 4 — Live Race Integration
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-07-09 — Phase 03 complete, transitioned to Phase 4
+Phase: 04 (live-race-integration) — EXECUTING
+Plan: 1 of 1
+Status: Phase complete — ready for verification
+Last activity: 2026-07-09 — Phase 04 execution started
 
 Progress: [██████████] 100% (Phase 01 complete and verified)
 
@@ -65,6 +65,7 @@ Progress: [██████████] 100% (Phase 01 complete and verified)
 | Phase 03 P02 | 8min | 3 tasks | 7 files |
 | Phase 03 P03 | 10min | 3 tasks | 4 files |
 | Phase 03 P04 | 25min | 2 tasks | 5 files |
+| Phase 04 P01 | ~25min | 3 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -107,6 +108,9 @@ Recent decisions affecting current work:
 - [Phase 03-04]: get_latest_race_session_key orders by date_start DESC not session_key DESC — fixes stale 2022 race resolution (2022 FastF1 session_keys numerically exceed 2023+ OpenF1 session_keys)
 - [Phase 03-04]: .streamlit/config.toml pins [server] address=localhost — streamlit's actual runtime default under --server.headless true binds all interfaces despite docstring claiming localhost-only
 - [Phase 03-04]: replay_race.py in-place replay stages a full backup under session_key+900_000_000_000 before clearing/rebuilding, with restore-on-interrupt, so Ctrl-C never leaves the source race incomplete
+- [Phase ?]: 04-01: Selected session_key=9550 (2024 Austria GP, 72 laps) as replay target over 78-lap Monaco races to avoid known Monaco/2022-era data-quality caveats
+- [Phase ?]: 04-01: Used replay_race.py --interval 1.5 (not default 5.0s) to bound concurrent validation run to ~2 min while exercising full 72-lap distance
+- [Phase ?]: 04-01: Criterion 1 (60s poll lag) verified with documented nuance - replay calls compute_and_store_inrace_latest_lap() directly since is_session_active() is always False for completed historical races; this is the intentional Phase 3 adaptation, not a failure
 
 ### Pending Todos
 
@@ -128,7 +132,7 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-07-09T05:17:52.512Z
+Last session: 2026-07-09T17:52:41.979Z
 Stopped at: Phase 4 context gathered
 Resume file: .planning/phases/04-live-race-integration/04-CONTEXT.md
 

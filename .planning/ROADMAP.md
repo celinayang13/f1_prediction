@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Data & Features** - Historical backfill, live poller, and feature table populated with engineered race features
 - [x] **Phase 2: Model Training** - Pre-race and in-race LightGBM models trained offline and serialized to disk (completed 2026-07-07)
 - [x] **Phase 3: Prediction Pipeline & Dashboard** - Inference wired into the poll loop; Dash dashboard showing live win probabilities (completed 2026-07-08)
-- [ ] **Phase 4: Live Race Integration** - End-to-end smoke test against a real F1 race weekend session
+- [x] **Phase 4: Live Race Integration** - End-to-end smoke test against a real F1 race weekend session (completed 2026-07-09)
 
 ## Phase Details
 
@@ -125,11 +125,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. No SQLite write-contention errors occur during concurrent poller writes and dashboard reads (WAL mode confirmed working)
   4. The full system (poller + dashboard) runs stably for a full race distance (~60 laps) on the developer's machine without crash or hang
 
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 **Wave 1**
 
-- [ ] 04-01-PLAN.md — Replay-based end-to-end validation (pipeline + dashboard concurrent with replay_race.py); map all 4 success criteria to observed evidence; produce VALIDATION.md (D-05)
+- [x] 04-01-PLAN.md — Replay-based end-to-end validation (pipeline + dashboard concurrent with replay_race.py); map all 4 success criteria to observed evidence; produce VALIDATION.md (D-05)
 
 ## Progress
 
@@ -141,4 +141,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Data & Features | 3/3 | Complete | 2026-06-17 |
 | 2. Model Training | 4/4 | Complete    | 2026-07-07 |
 | 3. Prediction Pipeline & Dashboard | 4/4 | Complete    | 2026-07-08 |
-| 4. Live Race Integration | 0/1 | Not started | - |
+| 4. Live Race Integration | 1/1 | Complete   | 2026-07-09 |
