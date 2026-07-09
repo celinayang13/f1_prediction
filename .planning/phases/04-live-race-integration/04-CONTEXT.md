@@ -23,7 +23,7 @@ A real live F1 race weekend is ~2 weeks out from context-gathering (2026-07-09) 
 
 ### OpenF1 Rate-Limit / Latency Risk
 
-- **D-02:** Accept the OpenF1 free tier as-is for this phase — **no upgrade to the sponsor tier (~€9.90/mo)**. Since validation is replay-based (reads from local SQLite via `raw_*` tables, not live OpenF1 polling), the free-tier latency risk noted in STATE.md's Blockers/Concerns doesn't materially apply during replay. It remains a live-list item to revisit when the real race check happens later.
+- **D-02 [informational]:** Accept the OpenF1 free tier as-is for this phase — **no upgrade to the sponsor tier (~€9.90/mo)**. Since validation is replay-based (reads from local SQLite via `raw_*` tables, not live OpenF1 polling), the free-tier latency risk noted in STATE.md's Blockers/Concerns doesn't materially apply during replay. It remains a live-list item to revisit when the real race check happens later. No plan action required — this phase's replay mechanism never exercises live OpenF1 polling.
 
 ### Crash/Hang Detection & Recovery
 
