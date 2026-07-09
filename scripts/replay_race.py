@@ -55,9 +55,13 @@ Important — in-place replay (default --target-session-key = --source-session-k
   dashboard/pipeline no longer seeing the replayed data, since they always
   open the project's default DB).
 
-Security: no f-string SQL — all SQL uses text() with bound :param names
-(T-03-05). Reuses get_engine() (never a second engine factory) and
-bulk_insert_rows() (never a hand-rolled chunked insert).
+Security: all *values* are passed via bound :param names — no value is ever
+f-string-interpolated into SQL (T-03-05). Column-list constants
+(_LAP_COLS/_POSITION_COLS/_STINT_COLS/_PIT_COLS) are f-string-interpolated
+into SELECT clauses, but these are hardcoded module constants, never
+derived from CLI args or external input. Reuses get_engine() (never a
+second engine factory) and bulk_insert_rows() (never a hand-rolled chunked
+insert).
 """
 from __future__ import annotations
 
