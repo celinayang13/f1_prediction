@@ -30,7 +30,6 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from f1_prediction.db.engine import get_engine
-from f1_prediction.db.upsert import bulk_insert_rows
 from f1_prediction.features.builder import build_features_for_session
 from f1_prediction.inference.features import (
     INRACE_NUMERIC_FEATURE_COLS,
@@ -137,8 +136,14 @@ def compute_and_store_inrace_latest_lap(
 
     # Idempotent per-lap re-runs: delete any existing 'inrace' rows for this
     # (session_key, lap_number) before insert (T-03-07).
-    with engine.connect() as conn_delete:
-        conn_delete.execute(
+    #
+    # WR-02: delete + insert run in the SAME transaction/connection so the
+    # swap is atomic — dashboard readers (which select MAX(lap_number) over
+    # predictions) never observe a window with the previous lap's stale rows
+    # deleted but the new lap's rows not yet inserted.
+    rows_df = pd.DataFrame(rows)
+    with engine.begin() as conn:
+        conn.execute(
             text(
                 "DELETE FROM predictions "
                 "WHERE session_key = :sk AND prediction_type = 'inrace' "
@@ -146,10 +151,16 @@ def compute_and_store_inrace_latest_lap(
             ),
             {"sk": session_key, "lap": lap_number},
         )
-        conn_delete.commit()
+        rows_df.to_sql(
+            "predictions",
+            conn,
+            if_exists="append",
+            index=False,
+            method="multi",
+            chunksize=500,
+        )
 
-    # WR-02: fresh connection for the bulk insert.
-    inserted = bulk_insert_rows(engine, "predictions", rows)
+    inserted = len(rows)
     logger.info(
         "compute_and_store_inrace_latest_lap: inserted %d inrace rows for "
         "session %d lap %d",
