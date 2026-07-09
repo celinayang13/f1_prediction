@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 04
-status: verifying
+current_phase: 0
+status: Awaiting next milestone
 stopped_at: Phase 4 context gathered
-last_updated: "2026-07-09T17:59:42.460Z"
+last_updated: "2026-07-09T18:35:03.698Z"
 last_activity: 2026-07-09
-last_activity_desc: Phase 04 complete
+last_activity_desc: Milestone v1.0 completed and archived
 progress:
   total_phases: 4
   completed_phases: 4
@@ -21,19 +21,17 @@ current_phase_name: live-race-integration
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-16)
+See: .planning/PROJECT.md (updated 2026-07-09)
 
 **Core value:** Show accurate, live-updating win probabilities for every driver during an F1 race weekend
-**Current focus:** Phase 04 — live-race-integration
+**Current focus:** Planning next milestone (v1.0 shipped 2026-07-09)
 
 ## Current Position
 
-Phase: 04
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-07-09 — Phase 04 complete
-
-Progress: [██████████] 100% (Phase 01 complete and verified)
+Phase: Milestone v1.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-09 — Milestone v1.0 completed and archived
 
 ## Performance Metrics
 
@@ -119,8 +117,7 @@ None.
 
 ### Blockers/Concerns
 
-- OpenF1 free tier may have higher latency for live sessions; sponsor tier (€9.90/month) may be needed on race weekends — validate in Phase 4
-- Phase 02 must handle NULL values in features_prerace: practice_pace_fp3 NULL on sprint weekends, championship_position NULL for season opener, team_name NULL for debut races
+- OpenF1 free tier latency/rate limits under a genuinely live race session remain unvalidated — replay-based validation (Phase 04) could not exercise this branch; carries into next milestone as the one deferred check from v1.0
 
 ## Deferred Items
 
@@ -142,3 +139,7 @@ Resume file: .planning/phases/04-live-race-integration/04-CONTEXT.md
 - OpenF1 raw_positions have lap_number=0 (API does not return lap number); is_winner SQL uses OR clause to trust finish_position when max_lap=0 (no lap data)
 - train_prerace_model exposes cv=5 as default param; production code passes cv=5 explicitly; tests use cv=2 for small fixtures
 - scale_pos_weight=18.74 for 1:19 class imbalance (XGBoost parameter, not is_unbalance which is LightGBM-only)
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
