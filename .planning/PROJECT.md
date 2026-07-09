@@ -16,11 +16,13 @@ Show accurate, live-updating win probabilities for every driver during an F1 rac
 - [x] Update win probability distribution live during the race using real-time lap positions, gaps, and pit stop/tyre data — Validated in Phase 03: prediction-pipeline-dashboard
 - [x] Display win probabilities in a local web dashboard that refreshes during a live race — Validated in Phase 03: prediction-pipeline-dashboard
 - [x] Dashboard shows all drivers ranked by win probability with a visual representation (bar/chart) — Validated in Phase 03: prediction-pipeline-dashboard
+- [x] Fetch and store historical F1 race data (2022–2025) via OpenF1 API — Validated in Phase 01: data-features
+- [x] Train an ML model on qualifying pace, practice times, circuit history, tyre strategy, car/constructor data, and championship standings — Validated in Phase 02: model-training
+- [x] Full poller → feature-build → inference → dashboard path runs correctly end-to-end without manual intervention — Validated in Phase 04: live-race-integration (replay-based smoke test, 4/4 ROADMAP success criteria; real live-OpenF1-session check deferred per D-01 to an actual future race weekend)
 
 ### Active
 
-- [ ] Fetch and store historical F1 race data (2022–2025) via OpenF1 API
-- [ ] Train an ML model on qualifying pace, practice times, circuit history, tyre strategy, car/constructor data, and championship standings
+None — all v1 requirements validated. v1.0 milestone complete (4/4 phases, 12/12 plans).
 
 ### Out of Scope
 
@@ -73,4 +75,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-09 after Phase 03 (prediction-pipeline-dashboard) completion*
+*Last updated: 2026-07-09 after Phase 04 (live-race-integration) completion — v1.0 milestone complete*
