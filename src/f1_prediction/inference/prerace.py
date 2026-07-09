@@ -23,7 +23,6 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from f1_prediction.db.engine import get_engine
-from f1_prediction.db.upsert import bulk_insert_rows
 from f1_prediction.inference.features import (
     PRERACE_FEATURE_COLS,
     load_model,
@@ -100,8 +99,34 @@ def compute_and_store_prerace(
         for _, row in result.iterrows()
     ]
 
-    # WR-02: fresh connection for the bulk insert (outer read conn is closed).
-    inserted = bulk_insert_rows(engine, "predictions", rows)
+    # Idempotent re-runs: delete any existing 'prerace' rows for this
+    # session_key before insert, mirroring compute_and_store_inrace_latest_lap's
+    # atomic delete+insert pattern (WR-01). Without this, a second direct call
+    # (bypassing pipeline.main()'s prerace_already_computed guard) would raise
+    # IntegrityError under the predictions table's UniqueConstraint.
+    #
+    # Delete + insert run in the SAME transaction/connection so the swap is
+    # atomic — readers never observe a window with rows deleted but not yet
+    # reinserted.
+    rows_df = pd.DataFrame(rows)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "DELETE FROM predictions "
+                "WHERE session_key = :sk AND prediction_type = 'prerace'"
+            ),
+            {"sk": session_key},
+        )
+        rows_df.to_sql(
+            "predictions",
+            conn,
+            if_exists="append",
+            index=False,
+            method="multi",
+            chunksize=500,
+        )
+
+    inserted = len(rows)
     logger.info(
         "compute_and_store_prerace: inserted %d prerace rows for session %d",
         inserted, session_key,
