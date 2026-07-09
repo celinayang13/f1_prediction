@@ -125,7 +125,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. No SQLite write-contention errors occur during concurrent poller writes and dashboard reads (WAL mode confirmed working)
   4. The full system (poller + dashboard) runs stably for a full race distance (~60 laps) on the developer's machine without crash or hang
 
-**Plans:** TBD
+**Plans:** 1 plan
+
+**Wave 1**
+
+- [ ] 04-01-PLAN.md — Replay-based end-to-end validation (pipeline + dashboard concurrent with replay_race.py); map all 4 success criteria to observed evidence; produce VALIDATION.md (D-05)
 
 ## Progress
 
@@ -137,4 +141,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Data & Features | 3/3 | Complete | 2026-06-17 |
 | 2. Model Training | 4/4 | Complete    | 2026-07-07 |
 | 3. Prediction Pipeline & Dashboard | 4/4 | Complete    | 2026-07-08 |
-| 4. Live Race Integration | 0/TBD | Not started | - |
+| 4. Live Race Integration | 0/1 | Not started | - |
