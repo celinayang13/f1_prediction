@@ -264,9 +264,11 @@ def train_prerace_model(
     )
 
     base_clf = xgb.XGBClassifier(
-        n_estimators=500,
+        n_estimators=200,
         learning_rate=0.05,
-        max_depth=6,
+        max_depth=3,
+        subsample=0.8,
+        colsample_bytree=0.8,
         scale_pos_weight=scale_pos_weight,
         objective="binary:logistic",
         eval_metric="logloss",
@@ -331,9 +333,11 @@ def train_inrace_model(
     )
 
     base_clf = xgb.XGBClassifier(
-        n_estimators=500,
+        n_estimators=200,
         learning_rate=0.05,
-        max_depth=6,
+        max_depth=3,
+        subsample=0.8,
+        colsample_bytree=0.8,
         scale_pos_weight=scale_pos_weight,
         objective="binary:logistic",
         eval_metric="logloss",
