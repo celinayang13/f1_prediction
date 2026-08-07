@@ -119,6 +119,12 @@ None.
 
 - OpenF1 free tier latency/rate limits under a genuinely live race session remain unvalidated — replay-based validation (Phase 04) could not exercise this branch; carries into next milestone as the one deferred check from v1.0
 
+## Quick Tasks Completed
+
+| ID | Description | Date | Commits |
+|----|-------------|------|---------|
+| 260807-lo4 | Regularize XGBoost hyperparameters (depth 6/500 trees → depth 3/200 trees + subsampling) after 2-split benchmark showed overfitting; retrained + validated both artifacts | 2026-08-07 | 9805648, bb8ba73 |
+
 ## Deferred Items
 
 | Category | Item | Status | Deferred At |
