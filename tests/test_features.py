@@ -440,7 +440,7 @@ def test_positions_asof_lap_end_never_uses_future_records():
     """OpenF1 positions (no lap number) align to laps by time, never from the future."""
     import pandas as pd
 
-    from f1_prediction.features.inrace import _positions_asof_lap_end
+    from f1_prediction.features.inrace import _lap_end_times, _positions_asof_lap_end
 
     laps = pd.DataFrame({
         "driver_number": [1, 1],
@@ -459,6 +459,7 @@ def test_positions_asof_lap_end_never_uses_future_records():
             "2024-01-01T13:04:31+00:00",
         ],
     })
+    laps["lap_end"] = _lap_end_times(laps)
     out = _positions_asof_lap_end(laps, pos).set_index("lap_number")["position"]
     assert out.to_dict() == {2: 2, 3: 2}
 
