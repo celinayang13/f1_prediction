@@ -3,7 +3,7 @@ In-race win probability inference (D-09, INRACE-02 contract reused).
 
 Rebuild-then-slice (Pattern 1): calls build_features_for_session(kind="inrace")
 to fully rebuild features_inrace for the session from raw_* tables, then
-slices to the latest lap (MAX(lap_number)) and computes softmax-normalized
+slices to the latest lap (MAX(lap_number)) and computes normalized
 win probabilities for that lap only.
 
 Do NOT hand-roll a separate incremental per-lap feature path — the
@@ -12,8 +12,8 @@ gap_to_leader/interval join in features/inrace.py had a real prior bug
 re-introducing similar bugs and drift from the training-time feature
 computation.
 
-Reuses inference/features.py's load_model/predict_inrace_with_softmax
-verbatim (Pitfall 4/5) — softmax is applied per (session_key, lap_number)
+Reuses inference/features.py's load_model/predict_inrace_normalized
+verbatim (Pitfall 4/5) — normalization is applied per (session_key, lap_number)
 so probabilities sum to ~1.0 within each lap (INRACE-02).
 
 Security: all SQL uses text() with bound :param names — no f-string SQL (T-03-05).
@@ -34,7 +34,7 @@ from f1_prediction.features.builder import build_features_for_session
 from f1_prediction.inference.features import (
     INRACE_NUMERIC_FEATURE_COLS,
     load_model,
-    predict_inrace_with_softmax,
+    predict_inrace_normalized,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,7 +52,7 @@ def compute_and_store_inrace_latest_lap(
 ) -> int:
     """
     Rebuild in-race features for a session, slice to the latest lap, and
-    insert softmax-normalized win probabilities into predictions.
+    insert normalized win probabilities into predictions.
 
     Args:
         session_key: Race session_key to compute in-race predictions for.
@@ -111,14 +111,14 @@ def compute_and_store_inrace_latest_lap(
         return 0
 
     # Reindex to the exact training-time column set/order (Pitfall 5) before
-    # handing off to predict_inrace_with_softmax, which builds the feature
+    # handing off to predict_inrace_normalized, which builds the feature
     # matrix via build_inrace_feature_matrix (9 numeric + 5 tyre one-hot).
     # NOTE: lap_number is one of the 9 INRACE_NUMERIC_FEATURE_COLS already —
     # it must not be listed a second time here, or selecting it by name
     # yields a duplicate column and a 15-wide (not 14-wide) feature matrix.
     df = df[["session_key", "driver_number", *INRACE_NUMERIC_FEATURE_COLS, "tyre_compound"]]
 
-    result = predict_inrace_with_softmax(model, df)
+    result = predict_inrace_normalized(model, df)
 
     computed_at = datetime.now(timezone.utc).isoformat()
     lap_number = int(max_lap)

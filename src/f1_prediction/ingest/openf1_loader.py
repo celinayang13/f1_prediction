@@ -43,7 +43,21 @@ _IDENTIFIER_TO_SESSION_TYPE: dict[str, str] = {
     "Practice 3": "Practice 3",
     "Sprint": "Sprint",
     "Sprint Shootout": "Sprint Shootout",
+    # OpenF1 renamed the Sprint Shootout to "Sprint Qualifying" from 2024
+    "Sprint Qualifying": "Sprint Shootout",
 }
+
+
+def _canonical_session_type(raw: dict) -> str:
+    """
+    Canonical session_type for an OpenF1 /v1/sessions row.
+
+    OpenF1's session_type is only a coarse category ("Race" for both the
+    Grand Prix and the Sprint, "Practice" for FP1-3); session_name is the
+    specific one, so it takes precedence.
+    """
+    raw_type = raw.get("session_name") or raw.get("session_type") or ""
+    return _IDENTIFIER_TO_SESSION_TYPE.get(raw_type, raw_type)
 
 # Default identifiers for OpenF1 year loads (D-06: no FP1; D-07: include Sprint/SS)
 _DEFAULT_IDENTIFIERS = ["FP2", "FP3", "Q", "R", "S", "SS"]
@@ -55,9 +69,7 @@ def _normalize_openf1_session(raw: dict) -> dict:
 
     Extracts only documented fields (T-02-01 per-field whitelist).
     """
-    # Map OpenF1 session_type to canonical values
-    raw_type = raw.get("session_type") or raw.get("session_name") or ""
-    session_type = _IDENTIFIER_TO_SESSION_TYPE.get(raw_type, raw_type)
+    session_type = _canonical_session_type(raw)
 
     return {
         "session_key": int(raw["session_key"]),
@@ -437,11 +449,10 @@ def load_openf1_year(
 
     results: list[dict] = []
     for sess in all_sessions:
-        sess_type = sess.get("session_type") or sess.get("session_name") or ""
-        canonical_type = _IDENTIFIER_TO_SESSION_TYPE.get(sess_type, sess_type)
+        canonical_type = _canonical_session_type(sess)
 
         if canonical_type not in target_types:
-            logger.debug("Skipping session_type=%s (not in target identifiers)", sess_type)
+            logger.debug("Skipping session_type=%s (not in target identifiers)", canonical_type)
             continue
 
         if rounds is not None:

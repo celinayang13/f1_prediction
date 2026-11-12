@@ -40,6 +40,7 @@ Run commands from the repository root:
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
+python -m pip install -r requirements.lock  # exact versions the model artifacts were built with
 python -m pip install -e '.[dev]'
 ```
 

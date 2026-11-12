@@ -6,7 +6,7 @@ they produce probability distributions summing to 1.0 ± tolerance on held-out
 2024 data. Confirms ROADMAP success criteria PRERACE-02 and INRACE-02.
 
 This exercises the full Phase 3 integration contract:
-  joblib.load → predict_proba → per-group softmax → sum-to-1 assertion
+  joblib.load → predict_proba → per-group normalization → sum-to-1 assertion
 
 Usage:
     # Full validation (prerace + inrace) on held-out 2024 data:
@@ -48,10 +48,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import joblib  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
-from scipy.special import softmax  # noqa: E402
 from sklearn.metrics import brier_score_loss, log_loss  # noqa: E402
 
 from f1_prediction.db.engine import get_engine  # noqa: E402
+from f1_prediction.inference.features import normalize_probs  # noqa: E402
 from train import (  # noqa: E402
     PRERACE_FEATURE_COLS,
     build_inrace_feature_matrix,
@@ -73,7 +73,7 @@ def _assert_sums_within_tolerance(sums: pd.Series, tolerance: float) -> None:
     This is a separately-defined module-level helper (not nested inside
     validate_sum_to_one) so that tests can call it directly with manufactured
     pd.Series inputs to exercise the violation-detection path without going
-    through softmax (which mathematically guarantees sum-to-1 and would make
+    through normalization (which mathematically guarantees sum-to-1 and would make
     a violation impossible to construct in a test).
 
     Args:
@@ -101,16 +101,16 @@ def validate_sum_to_one(
     tolerance: float = 0.001,
 ) -> dict:
     """
-    Apply per-group softmax to raw probabilities and assert sum-to-1.
+    Apply per-group normalization to raw probabilities and assert sum-to-1.
 
-    Softmax is applied independently within each group defined by group_cols.
+    Normalization is applied independently within each group defined by group_cols.
     For pre-race validation, group by session_key (one race = one group).
     For in-race validation, group by (session_key, lap_number) so each lap
     snapshot is a separate inference event (INRACE-02).
 
     Args:
         raw_proba: 1-D numpy array of raw predict_proba scores (same length as
-                   group_keys). These are the raw classifier outputs BEFORE softmax.
+                   group_keys). These are the raw classifier outputs BEFORE normalization.
         group_keys: DataFrame containing the grouping columns (same length as
                     raw_proba). Must contain the columns named in group_cols.
         group_cols: List of column names to group by, e.g., ["session_key"] or
@@ -125,13 +125,13 @@ def validate_sum_to_one(
           - violations (list): always [] on success (AssertionError raised otherwise)
 
     Raises:
-        AssertionError: If any group's softmax probabilities do not sum to
+        AssertionError: If any group's normalization probabilities do not sum to
                         1.0 within tolerance. Message includes offending group keys.
     """
     df = group_keys.copy()
     df["raw_prob"] = raw_proba
     df["win_prob"] = df.groupby(group_cols)["raw_prob"].transform(
-        lambda x: softmax(x.values)
+        lambda x: normalize_probs(x.values)
     )
     sums = df.groupby(group_cols)["win_prob"].sum()
 
@@ -155,7 +155,7 @@ def validate_prerace_model(model_path: Path, val_year: int, tolerance: float) ->
     Load the pre-race model artifact and validate on held-out val_year data.
 
     Loads the model via joblib.load, fetches features via load_prerace_training,
-    filters to val_year rows, computes predict_proba, applies per-race softmax
+    filters to val_year rows, computes predict_proba, applies per-race normalization
     via validate_sum_to_one, and computes Brier score + log loss.
 
     Args:
@@ -220,7 +220,7 @@ def validate_inrace_model(model_path: Path, val_year: int, tolerance: float) -> 
 
     Loads the model via joblib.load, fetches features via load_inrace_training,
     filters to val_year rows, builds the 14-column feature matrix, applies
-    per-(session_key, lap_number) softmax via validate_sum_to_one, and computes
+    per-(session_key, lap_number) normalization via validate_sum_to_one, and computes
     Brier score + log loss.
 
     Args:

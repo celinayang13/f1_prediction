@@ -47,8 +47,8 @@ from f1_prediction.inference.features import (  # noqa: E402
     TYRE_COMPOUND_VALUES,
     build_inrace_feature_matrix,
     encode_tyre_compound,
-    predict_inrace_with_softmax,
-    predict_with_softmax,
+    predict_inrace_normalized,
+    predict_normalized,
 )
 
 logger = logging.getLogger(__name__)
@@ -449,8 +449,8 @@ def _train_prerace(args) -> None:
     brier = brier_score_loss(y_val, raw_proba_val)
     ll = log_loss(y_val, raw_proba_val)
 
-    # Apply per-race softmax and assert sum-to-1
-    result = predict_with_softmax(model, val_df, PRERACE_FEATURE_COLS)
+    # Apply per-race normalization and assert sum-to-1
+    result = predict_normalized(model, val_df, PRERACE_FEATURE_COLS)
     sums = result.groupby("session_key")["win_prob"].sum()
     assert ((sums - 1.0).abs() < 0.001).all(), (
         f"Per-race sum-to-1 assertion failed! Violating sessions: "
@@ -509,8 +509,8 @@ def _train_inrace(args) -> None:
     brier = brier_score_loss(y_val, raw_proba_val)
     ll = log_loss(y_val, raw_proba_val)
 
-    # Apply per-(session_key, lap_number) softmax and assert sum-to-1
-    result = predict_inrace_with_softmax(model, val_df)
+    # Apply per-(session_key, lap_number) normalization and assert sum-to-1
+    result = predict_inrace_normalized(model, val_df)
     sums = result.groupby(["session_key", "lap_number"])["win_prob"].sum()
     assert ((sums - 1.0).abs() < 0.001).all(), (
         f"Per-lap sum-to-1 assertion failed! Violating (session_key, lap_number) groups: "

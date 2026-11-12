@@ -294,3 +294,18 @@ def test_cli_help_has_expected_args():
     help_text = result.stdout + result.stderr
     for flag in ["--years", "--rounds", "--identifiers", "--skip-features"]:
         assert flag in help_text, f"Expected '{flag}' in --help output. Got:\n{help_text}"
+
+
+def test_openf1_canonical_session_type_uses_session_name():
+    """OpenF1 tags sprints 'Race' and FP2 'Practice'; session_name disambiguates."""
+    from f1_prediction.ingest.openf1_loader import _canonical_session_type
+
+    cases = {
+        ("Race", "Race"): "Race",
+        ("Sprint", "Race"): "Sprint",
+        ("Sprint Qualifying", "Qualifying"): "Sprint Shootout",
+        ("Qualifying", "Qualifying"): "Qualifying",
+        ("Practice 2", "Practice"): "Practice 2",
+    }
+    for (name, coarse), expected in cases.items():
+        assert _canonical_session_type({"session_name": name, "session_type": coarse}) == expected

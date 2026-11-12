@@ -5,7 +5,7 @@ Covers:
   - Feature set matches the 7 D-03 columns (PRERACE-01)
   - is_winner label excludes DNF leaders via lap-completion filter (Pitfall 3)
   - CalibratedClassifierCV is returned by train_prerace_model
-  - Per-race softmax probabilities sum to 1.0 ± 1e-6 (PRERACE-02)
+  - Per-race normalization probabilities sum to 1.0 ± 1e-6 (PRERACE-02)
   - Model artifact exists and is loadable (PRERACE-03)
   - Static AST check: cv='prefit' absent (Pitfall 2 regression)
   - Static AST check: scale_pos_weight present, is_unbalance absent (Pitfall 7 regression)
@@ -37,8 +37,8 @@ from train import (  # noqa: E402
     encode_tyre_compound,
     load_inrace_training,
     load_prerace_training,
-    predict_inrace_with_softmax,
-    predict_with_softmax,
+    predict_inrace_normalized,
+    predict_normalized,
     save_model,
     train_inrace_model,
     train_prerace_model,
@@ -241,7 +241,7 @@ def test_prerace_train_returns_calibrated_model(prerace_train_engine):
 
 
 # ---------------------------------------------------------------------------
-# Test 4: Per-race softmax sums to 1.0
+# Test 4: Per-race normalization sums to 1.0
 # ---------------------------------------------------------------------------
 
 def test_prerace_sum_to_one(prerace_train_engine):
@@ -250,7 +250,7 @@ def test_prerace_sum_to_one(prerace_train_engine):
     model = train_prerace_model(df, train_years=[2022, 2023], cv=2)
 
     val_df = df[df["year"] == 2024].copy()
-    result = predict_with_softmax(model, val_df, PRERACE_FEATURE_COLS)
+    result = predict_normalized(model, val_df, PRERACE_FEATURE_COLS)
 
     sums = result.groupby("session_key")["win_prob"].sum()
     assert ((sums - 1.0).abs() < 1e-6).all(), (
@@ -545,7 +545,7 @@ def test_inrace_train_returns_calibrated_model(inrace_train_engine):
 
 
 # ---------------------------------------------------------------------------
-# Test 12: Per-(session_key, lap_number) softmax sums to 1.0 (INRACE-02)
+# Test 12: Per-(session_key, lap_number) normalization sums to 1.0 (INRACE-02)
 # ---------------------------------------------------------------------------
 
 def test_inrace_sum_to_one(inrace_train_engine):
@@ -554,7 +554,7 @@ def test_inrace_sum_to_one(inrace_train_engine):
     model = train_inrace_model(df, train_years=[2022, 2023], cv=2)
 
     val_df = df[df["year"] == 2024].copy()
-    result = predict_inrace_with_softmax(model, val_df)
+    result = predict_inrace_normalized(model, val_df)
 
     sums = result.groupby(["session_key", "lap_number"])["win_prob"].sum()
     assert ((sums - 1.0).abs() < 1e-6).all(), (
@@ -576,7 +576,7 @@ def test_inrace_lap_by_lap_variation(inrace_train_engine):
     model = train_inrace_model(df, train_years=[2022, 2023], cv=2)
 
     val_df = df[df["year"] == 2024].copy()
-    result = predict_inrace_with_softmax(model, val_df)
+    result = predict_inrace_normalized(model, val_df)
 
     # Pick the session in val
     val_session = int(val_df["session_key"].iloc[0])
@@ -617,12 +617,12 @@ def test_inrace_artifact_exists(tmp_path, inrace_train_engine):
 
 
 # ---------------------------------------------------------------------------
-# Test 15: Static source check — in-race softmax grouping (INRACE-02)
+# Test 15: Static source check — in-race normalization grouping (INRACE-02)
 # ---------------------------------------------------------------------------
 
-def test_inrace_softmax_grouped_by_lap_in_source():
+def test_inrace_normalization_grouped_by_lap_in_source():
     """
-    Static regression: train.py must group in-race softmax by
+    Static regression: train.py must group in-race normalization by
     (session_key, lap_number), not by session_key alone.
     Grouping by session_key only would average across laps, violating INRACE-02.
     """
@@ -635,6 +635,22 @@ def test_inrace_softmax_grouped_by_lap_in_source():
         or "groupby(['session_key', 'lap_number'])" in src
     ), (
         "scripts/train.py does not contain groupby(['session_key', 'lap_number']) — "
-        "in-race softmax must group by both session_key AND lap_number (INRACE-02). "
+        "in-race normalization must group by both session_key AND lap_number (INRACE-02). "
         "Grouping by session_key alone would collapse all laps into one distribution."
     )
+
+
+# ---------------------------------------------------------------------------
+# normalize_probs: p / sum(p), never softmax over probabilities
+# ---------------------------------------------------------------------------
+
+def test_normalize_probs_keeps_favourite_and_handles_all_zero():
+    from f1_prediction.inference.features import normalize_probs
+
+    # A near-certain favourite must stay near-certain (softmax gave ~12%)
+    out = normalize_probs(np.array([0.95] + [0.0] * 19))
+    assert out[0] == pytest.approx(1.0)
+    assert out.sum() == pytest.approx(1.0)
+
+    # All-zero field falls back to uniform
+    assert normalize_probs(np.zeros(20)) == pytest.approx(np.full(20, 0.05))

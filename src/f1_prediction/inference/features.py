@@ -14,8 +14,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import joblib
+import numpy as np
 import pandas as pd
-from scipy.special import softmax
 
 # ---------------------------------------------------------------------------
 # Constants (D-03 / D-04)
@@ -92,19 +92,34 @@ def build_inrace_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Prediction + softmax normalization
+# Prediction + per-field normalization
 # ---------------------------------------------------------------------------
 
-def predict_with_softmax(
+def normalize_probs(p: np.ndarray) -> np.ndarray:
+    """
+    Normalize calibrated win probabilities within one field: p_i / sum(p).
+
+    Softmax must NOT be used here — the inputs are already probabilities,
+    and softmax over values in [0, 1] flattens a near-certain favourite to
+    ~12% in a 20-car field. An all-zero field falls back to uniform.
+    """
+    p = np.asarray(p, dtype=float)
+    total = p.sum()
+    if total <= 0:
+        return np.full(len(p), 1.0 / len(p))
+    return p / total
+
+
+def predict_normalized(
     model,
     df: pd.DataFrame,
     feature_cols: list[str],
 ) -> pd.DataFrame:
     """
-    Predict win probabilities and apply per-race softmax normalization.
+    Predict win probabilities and normalize them per race (p / sum(p)).
 
-    Softmax is applied per session_key (per race), NOT globally across all
-    rows. This ensures probabilities sum to 1.0 within each race (PRERACE-02).
+    Normalization is applied per session_key (per race), NOT globally across
+    all rows. This ensures probabilities sum to 1.0 within each race (PRERACE-02).
 
     Args:
         model: Fitted CalibratedClassifierCV.
@@ -113,28 +128,28 @@ def predict_with_softmax(
 
     Returns:
         df with two new columns added:
-          - raw_prob: raw probability from predict_proba (before softmax)
-          - win_prob: per-race softmax-normalized win probability
+          - raw_prob: raw probability from predict_proba (before normalization)
+          - win_prob: per-race normalized win probability
     """
     df = df.copy()
     raw_proba = model.predict_proba(df[feature_cols].values)[:, 1]
     df["raw_prob"] = raw_proba
     df["win_prob"] = df.groupby("session_key")["raw_prob"].transform(
-        lambda x: softmax(x.values)
+        lambda x: normalize_probs(x.values)
     )
     return df
 
 
-def predict_inrace_with_softmax(
+def predict_inrace_normalized(
     model,
     df: pd.DataFrame,
 ) -> pd.DataFrame:
     """
-    Predict in-race win probabilities and apply per-(session_key, lap_number)
-    softmax normalization.
+    Predict in-race win probabilities and normalize them per
+    (session_key, lap_number).
 
-    Each lap within a race is a separate prediction event (INRACE-02). Softmax
-    is applied per (session_key, lap_number) group — NOT per session_key alone.
+    Each lap within a race is a separate prediction event (INRACE-02).
+    Normalization is applied per (session_key, lap_number) group — NOT per session_key alone.
     This ensures each lap's probability distribution sums to 1.0 independently.
 
     Args:
@@ -144,15 +159,15 @@ def predict_inrace_with_softmax(
 
     Returns:
         df copy with two new columns:
-          - raw_prob: raw probability from predict_proba (before softmax)
-          - win_prob: per-(session_key, lap_number) softmax-normalized probability
+          - raw_prob: raw probability from predict_proba (before normalization)
+          - win_prob: per-(session_key, lap_number) normalized probability
     """
     df = df.copy()
     X = build_inrace_feature_matrix(df).values
     raw_proba = model.predict_proba(X)[:, 1]
     df["raw_prob"] = raw_proba
     df["win_prob"] = df.groupby(["session_key", "lap_number"])["raw_prob"].transform(
-        lambda x: softmax(x.values)
+        lambda x: normalize_probs(x.values)
     )
     return df
 

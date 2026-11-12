@@ -6,7 +6,7 @@ These tests run in milliseconds and isolate the math from the I/O.
 
 Covers:
   - Uniform distribution (20 drivers × 2 sessions → n_groups=2, sums≈1.0)
-  - Varied distribution (random probabilities still sum to 1.0 after softmax)
+  - Varied distribution (random probabilities still sum to 1.0 after normalization)
   - Artificial violation path via _assert_sums_within_tolerance directly
   - Multi-column grouping (session_key × lap_number → n_groups=4)
   - min_sum and max_sum are within tolerance of 1.0 after successful validation
@@ -33,7 +33,7 @@ from validate_model import _assert_sums_within_tolerance, validate_sum_to_one  #
 def test_validate_sum_to_one_passes_for_uniform_distribution():
     """
     Uniform raw probabilities (0.5 for all drivers) must produce valid per-race
-    softmax sums. After softmax, each driver gets 1/20 ≈ 0.05 and the 20 drivers
+    normalization sums. After normalization, each driver gets 1/20 ≈ 0.05 and the 20 drivers
     in each session sum to 1.0 exactly.
     """
     n_sessions = 2
@@ -59,8 +59,8 @@ def test_validate_sum_to_one_passes_for_uniform_distribution():
 
 def test_validate_sum_to_one_passes_for_varied_distribution():
     """
-    After per-session softmax, sums must equal 1.0 regardless of how varied
-    the raw probabilities are. Softmax is sum-to-1 by construction.
+    After per-session normalization, sums must equal 1.0 regardless of how varied
+    the raw probabilities are. Normalization is sum-to-1 by construction.
     """
     n_sessions = 2
     n_drivers = 20
@@ -73,11 +73,11 @@ def test_validate_sum_to_one_passes_for_varied_distribution():
         "session_key": [1] * n_drivers + [2] * n_drivers,
     })
 
-    # Should not raise — softmax is sum-to-1 by definition
+    # Should not raise — normalization is sum-to-1 by definition
     result = validate_sum_to_one(raw_proba, group_keys, ["session_key"], tolerance=0.001)
 
     assert result["violations"] == []
-    # Softmax is exact within float64 precision — sums should be extremely close to 1.0
+    # Normalization is exact within float64 precision — sums should be extremely close to 1.0
     assert abs(result["min_sum"] - 1.0) < 1e-10, f"min_sum not ~1.0: {result['min_sum']}"
     assert abs(result["max_sum"] - 1.0) < 1e-10, f"max_sum not ~1.0: {result['max_sum']}"
 
@@ -92,8 +92,8 @@ def test_validate_sum_to_one_raises_for_artificial_violation():
     _assert_sums_within_tolerance with a manufactured pd.Series whose values
     are NOT within tolerance of 1.0.
 
-    This bypasses softmax entirely — the whole point is to test the assertion
-    helper in isolation without going through softmax (which would make a
+    This bypasses normalization entirely — the whole point is to test the assertion
+    helper in isolation without going through normalization (which would make a
     violation mathematically impossible to construct).
     """
     # Groups (2,) and (3,) violate at 0.9 and 1.05 respectively
