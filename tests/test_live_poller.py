@@ -409,3 +409,61 @@ def test_poller_lifecycle(poll_engine):
     # Second stop is idempotent — must not raise
     stop_poller(scheduler)
     assert scheduler.state == STATE_STOPPED
+
+
+# ---------------------------------------------------------------------------
+# Replace-on-poll behaviour: late laps, corrections, failed endpoints
+# ---------------------------------------------------------------------------
+
+def _active(session_key, *, now=None, client=None):
+    return True
+
+
+def _count(engine, table, where="1=1"):
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        return conn.execute(text(f"SELECT COUNT(*) FROM {table} WHERE session_key = 9999 AND {where}")).scalar()
+
+
+def test_poll_once_picks_up_late_lap_for_slower_driver(seeded_poll_engine):
+    """A lap below the field's highest stored lap must still be stored (driver 16 is on lap 5)."""
+    laps = [_make_lap_dict(9999, 16, n) for n in range(1, 6)] + [_make_lap_dict(9999, 44, n) for n in range(1, 4)]
+    result = poll_once(9999, engine=seeded_poll_engine, _is_active=_active, _client=_MockPollerClient(laps=laps))
+    assert result["laps_inserted"] == 3
+    assert _count(seeded_poll_engine, "raw_laps", "driver_number = 44") == 3
+
+
+def test_poll_once_counts_a_lap_whose_time_arrives_later(seeded_poll_engine):
+    """OpenF1 shows a lap when it starts and fills in its time when it ends."""
+    laps = [_make_lap_dict(9999, 16, n) for n in range(1, 7)]
+    laps[-1]["lap_duration"] = None
+    first = poll_once(9999, engine=seeded_poll_engine, _is_active=_active, _client=_MockPollerClient(laps=laps))
+    laps[-1]["lap_duration"] = 91.2
+    second = poll_once(9999, engine=seeded_poll_engine, _is_active=_active, _client=_MockPollerClient(laps=laps))
+    assert (first["laps_inserted"], second["laps_inserted"]) == (1, 1)
+    assert _count(seeded_poll_engine, "raw_laps") == 6                      # updated in place, not duplicated
+    assert _count(seeded_poll_engine, "raw_laps", "lap_duration = 91.2") == 1
+
+
+def test_poll_once_stores_positions_that_have_no_lap_number(seeded_poll_engine):
+    """OpenF1 position records carry a timestamp ('date'), never a lap number."""
+    positions = [{"driver_number": 16, "position": 1, "date": "2024-03-02T15:00:00+00:00"}]
+    laps = [_make_lap_dict(9999, 16, n) for n in range(1, 6)]
+    poll_once(9999, engine=seeded_poll_engine, _is_active=_active,
+              _client=_MockPollerClient(laps=laps, positions=positions))
+    assert _count(seeded_poll_engine, "raw_positions", "date_recorded IS NOT NULL") == 1
+
+
+def test_poll_once_keeps_stored_rows_when_an_endpoint_fails_or_comes_back_short(seeded_poll_engine):
+    class _Failing(_MockPollerClient):
+        async def laps(self, session_key, **filters):
+            raise RuntimeError("upstream timeout")
+
+    result = poll_once(9999, engine=seeded_poll_engine, _is_active=_active, _client=_Failing())
+    assert result["degraded"] == ["raw_laps"] and result["laps_inserted"] == 0
+    assert _count(seeded_poll_engine, "raw_laps") == 5
+
+    short = [_make_lap_dict(9999, 16, n) for n in range(1, 3)]              # partial response
+    result = poll_once(9999, engine=seeded_poll_engine, _is_active=_active, _client=_MockPollerClient(laps=short))
+    assert "raw_laps" in result["degraded"]
+    assert _count(seeded_poll_engine, "raw_laps") == 5

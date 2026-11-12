@@ -284,3 +284,31 @@ def test_run_inference_after_poll_gates_on_laps_inserted(
         "run_inference_after_poll must trigger inference when laps_inserted > 0"
     )
     assert result_triggered == 1
+
+
+# ---------------------------------------------------------------------------
+# Published lap: never a one-car field
+# ---------------------------------------------------------------------------
+
+def test_publishable_lap_waits_for_enough_of_the_field(tmp_path):
+    from f1_prediction.db.engine import get_engine, init_db
+    from f1_prediction.inference.inrace import _publishable_lap
+
+    engine = get_engine(tmp_path / "lap.db")
+    init_db(engine)
+
+    def _add(conn, lap, drivers):
+        for d in drivers:
+            conn.execute(
+                text("INSERT INTO features_inrace (session_key, driver_number, lap_number, pit_stop_count) VALUES (1, :d, :l, 0)"),
+                {"d": d, "l": lap},
+            )
+
+    with engine.begin() as conn:
+        assert _publishable_lap(conn, 1) is None
+        _add(conn, 1, range(1, 21))
+        _add(conn, 2, range(1, 21))
+        _add(conn, 3, [1])                      # only the leader has finished lap 3
+        assert _publishable_lap(conn, 1) == 2
+        _add(conn, 3, range(2, 9))              # 8 of 20 across the line
+        assert _publishable_lap(conn, 1) == 3

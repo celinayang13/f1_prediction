@@ -156,8 +156,36 @@ def compute_inrace_features_for_session(session_key: int, conn) -> pd.DataFrame:
     )
     total_laps_row = conn.execute(total_laps_q, {"sk": session_key}).fetchone()
     total_laps = int(total_laps_row[0]) if (total_laps_row and total_laps_row[0] is not None) else None
-    # Fallback: use MAX(lap_number) from this session's laps if total_laps not stored
+    if total_laps is None:
+        # Race in progress: the distance is not known from this session yet, so
+        # use the most recent earlier race at the same circuit. Falling straight
+        # back to the laps seen so far would tell the model every lap is the last.
+        prior = conn.execute(
+            text(
+                """
+                SELECT other.total_laps
+                FROM raw_sessions this
+                JOIN raw_sessions other
+                  ON other.session_type = 'Race'
+                 AND other.session_key != this.session_key
+                 AND other.total_laps IS NOT NULL
+                 AND (other.circuit_key = this.circuit_key
+                      OR other.circuit_short_name = this.circuit_short_name)
+                WHERE this.session_key = :sk
+                ORDER BY other.date_start DESC
+                LIMIT 1
+                """
+            ),
+            {"sk": session_key},
+        ).fetchone()
+        if prior is not None:
+            total_laps = int(prior[0])
     if total_laps is None and not laps_df.empty:
+        logger.warning(
+            "No race distance known for session %d (no total_laps and no earlier race at this "
+            "circuit) — using laps seen so far; laps_remaining will be wrong until the race ends",
+            session_key,
+        )
         total_laps = int(laps_df["lap_number"].max())
 
     # ------------------------------------------------------------------

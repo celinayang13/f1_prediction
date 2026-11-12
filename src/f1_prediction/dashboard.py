@@ -90,7 +90,7 @@ def render_prerace_tab(session_key: int) -> None:
 
     chart_df = df.rename(columns={"full_name": "label"})
     fig = build_win_prob_bar_chart(chart_df)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     latest_computed_at = df["computed_at"].max()
     st.caption(f"Pre-race · computed {_format_time(latest_computed_at)}")
@@ -139,7 +139,7 @@ def render_inrace_tab(session_key: int) -> None:
 
     chart_df = df.rename(columns={"full_name": "label"})
     fig = build_win_prob_bar_chart(chart_df)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     side_table = df[
         ["full_name", "position", "tyre_compound", "tyre_age_laps", "gap_to_leader"]
@@ -152,7 +152,7 @@ def render_inrace_tab(session_key: int) -> None:
             "gap_to_leader": "Gap to Leader (s)",
         }
     )
-    st.dataframe(side_table, use_container_width=True, hide_index=True)
+    st.dataframe(side_table, width="stretch", hide_index=True)
     _model_caption("inrace")
 
 
