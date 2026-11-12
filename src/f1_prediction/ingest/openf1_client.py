@@ -166,6 +166,10 @@ class OpenF1Client:
         """Fetch the official classification from /v1/session_result for a session."""
         return await self._fetch("session_result", {"session_key": session_key})
 
+    async def race_control(self, session_key: int) -> list[dict]:
+        """Fetch race control messages from /v1/race_control for a session."""
+        return await self._fetch("race_control", {"session_key": session_key})
+
     async def drivers(self, session_key: int) -> list[dict]:
         """Fetch driver metadata from /v1/drivers for a session."""
         return await self._fetch("drivers", {"session_key": session_key})

@@ -10,7 +10,7 @@ import pytest
 from f1_prediction.simulation.race_sim import SimParams, add_pace_columns, simulate_win_probs
 
 # no randomness from safety cars or retirements unless a test asks for it
-QUIET = SimParams(safety_car_per_lap=0.0, dnf_per_lap=0.0, pit_hazard=np.zeros((8, 6, 3)).tolist())
+QUIET = SimParams(safety_car_per_lap=0.0, dnf_per_lap=0.0, tyre_deg=0.0, pit_hazard=np.zeros((8, 6, 3)).tolist())
 
 
 def _state(gaps, stops, laps_remaining=20, pace=None):
@@ -66,3 +66,11 @@ def test_add_pace_columns_ignores_pit_and_first_laps():
     assert out.loc[(1, [1, 4, 5]), "rel_pace"].isna().all()       # lap 1, in-lap, out-lap
     assert out.loc[(1, 3), "obs_pace"] == pytest.approx(-0.5)     # half a second quicker than the lap median
     assert out.loc[(1, 5), "obs_laps"] == 2                       # carried forward through the stop
+
+
+def test_older_tyres_cost_time_when_wear_is_on():
+    worn = dataclasses.replace(QUIET, tyre_deg=0.3)
+    state = _state([0.0, 3.0], [1, 1], laps_remaining=25)
+    state["tyre_age"] = [30.0, 2.0]          # leader on much older tyres
+    assert simulate_win_probs(state, worn, n_sims=500)[2] > 0.8
+    assert simulate_win_probs(state, QUIET, n_sims=500)[2] < 0.5

@@ -464,3 +464,20 @@ class RawSessionResult(Base):
     dnf = Column(Boolean)
     dns = Column(Boolean)
     dsq = Column(Boolean)
+
+
+class RawRaceControl(Base):
+    """
+    Race control messages for a session (OpenF1 /v1/race_control): flags,
+    safety car and virtual safety car deployments, incidents.
+    """
+
+    __tablename__ = "raw_race_control"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_key = Column(Integer, nullable=False, index=True)
+    date_recorded = Column(String)
+    lap_number = Column(Integer)
+    category = Column(String)   # e.g. 'Flag', 'SafetyCar', 'Other'
+    flag = Column(String)
+    message = Column(String)

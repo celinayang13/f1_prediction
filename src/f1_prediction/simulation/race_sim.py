@@ -10,7 +10,8 @@ What a simulated lap does, in order:
   2. Pit stops: each car may stop, with a probability that depends on tyre
      age, laps remaining and stops already made; a stop costs `pit_loss`.
   3. Lap time: the car's pace relative to the field (uncertain, drawn once
-     per simulated race) plus per-lap noise.
+     per simulated race), a penalty for tyres older than the field's, and
+     per-lap noise.
   4. Overtaking: a car that would pass the one directly ahead is sometimes
      held up behind it instead.
   5. Retirements: each car has a small per-lap chance of dropping out.
@@ -18,8 +19,8 @@ What a simulated lap does, in order:
 Everything is in seconds relative to the field, so absolute lap time, fuel
 load and track length cancel out.
 
-Known gaps (not modelled yet): tyre compound and degradation, weather,
-cheaper pit stops under a safety car, team orders, red flags.
+Known gaps (not modelled yet): tyre compound, weather, cheaper pit stops
+under a safety car, virtual safety cars, team orders, red flags.
 """
 from __future__ import annotations
 
@@ -52,6 +53,7 @@ class SimParams:
     pit_loss: float = 22.0             # time lost by making a stop (s)
     dnf_per_lap: float = 0.002         # chance a car retires on any given lap
     safety_car_per_lap: float = 0.03   # chance a safety car period starts on any given lap
+    tyre_deg: float = 0.03             # lap time lost per lap of tyre age beyond the field's (s)
     pit_hazard: list = field(default_factory=list)  # [age bucket][laps-left bucket][stops made] -> P(stop this lap)
 
     # --- hand-set (shortcut: not fitted, tune against held-out races before trusting the output)
@@ -117,13 +119,17 @@ def add_pace_columns(laps: pd.DataFrame) -> pd.DataFrame:
     return laps
 
 
-def estimate_params(laps: pd.DataFrame) -> SimParams:
+def estimate_params(laps: pd.DataFrame, safety_cars: "pd.Series | None" = None) -> SimParams:
     """
     Estimate the data-driven simulator settings from past races.
 
     Args:
         laps: Output of add_pace_columns() for the training seasons, also
             carrying qualifying_delta_to_pole, tyre_age_laps and laps_remaining.
+        safety_cars: Number of full safety car deployments per race, indexed
+            by session_key, for races with race-control records (0 where
+            there was none). Races missing from it fall back to spotting
+            slow laps, which over-counts.
 
     Returns:
         SimParams with the estimated block filled in and hand-set defaults elsewhere.
@@ -166,6 +172,19 @@ def estimate_params(laps: pd.DataFrame) -> SimParams:
         & (field_laps["lap_number"] > 2)
     )
     params.safety_car_per_lap = float(started.sum() / len(field_laps))
+    if safety_cars is not None:
+        recorded = field_laps["session_key"].isin(safety_cars.index)
+        if recorded.any():
+            known = safety_cars[safety_cars.index.isin(field_laps["session_key"])]
+            params.safety_car_per_lap = float(known.sum() / recorded.sum())
+
+    # tyre wear: how much slower a car gets per lap its tyres are older than the
+    # field's, comparing each car only with itself across the race
+    age_rel = laps["tyre_age_laps"] - laps.groupby(["session_key", "lap_number"])["tyre_age_laps"].transform("median")
+    wear = pd.DataFrame({"pace": laps["rel_pace"], "age": age_rel, "s": laps["session_key"], "d": laps["driver_number"]}).dropna()
+    wear[["pace", "age"]] -= wear.groupby(["s", "d"])[["pace", "age"]].transform("mean")
+    if (wear["age"] ** 2).sum() > 0:
+        params.tyre_deg = float(max(0.0, (wear["pace"] * wear["age"]).sum() / (wear["age"] ** 2).sum()))
 
     # pit-stop probability by tyre age, laps remaining and stops already made (smoothed)
     known = laps.dropna(subset=["tyre_age_laps", "laps_remaining"])
@@ -228,6 +247,10 @@ def _state(driver, gap, tyre_age, stops, laps_remaining, quali_delta, obs_pace, 
     n = obs_laps.fillna(0.0).to_numpy(float)
     obs = obs_pace.fillna(0.0).to_numpy(float)
     weight = n / (n + params.pace_prior_laps)
+    age = tyre_age.fillna(0).to_numpy(float)
+    # observed pace includes the tyres the car is on now; take that out so
+    # the simulation can add wear back as tyres age and reset it at a stop
+    obs = obs - params.tyre_deg * (age - np.median(age))
     return pd.DataFrame({
         "driver_number": driver.to_numpy(),
         "gap": gap.to_numpy(float),
@@ -284,7 +307,8 @@ def simulate_win_probs(state: pd.DataFrame, params: SimParams, n_sims: int = 200
         # shortcut: assumes a dry race where every car must stop once, lift when weather is modelled
         pits |= running & (stops == 0) & (left_after == 1)
 
-        lap_time = pace + params.lap_noise_sd * rng.standard_normal((n_sims, n_cars)) + params.pit_loss * pits
+        wear = params.tyre_deg * (tyre_age - np.median(tyre_age, axis=1, keepdims=True))
+        lap_time = pace + wear + params.lap_noise_sd * rng.standard_normal((n_sims, n_cars)) + params.pit_loss * pits
         if lap == 0 and bool(state["standing_start"].iloc[0]):
             lap_time += params.first_lap_sd * rng.standard_normal((n_sims, n_cars))
         tentative = time + lap_time

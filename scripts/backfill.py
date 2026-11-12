@@ -290,6 +290,7 @@ def main() -> None:
     if any(y >= 2023 for y in args.years):
         logger.info("Official results loaded: %d rows", openf1_loader.load_openf1_results())
         logger.info("Driver/team rows loaded: %d", openf1_loader.load_openf1_drivers())
+        logger.info("Race control rows loaded: %d", openf1_loader.load_openf1_race_control())
         fix_round_numbers(get_engine())
         logger.info("round_number fix applied for 2023+ sessions")
 

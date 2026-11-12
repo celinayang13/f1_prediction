@@ -27,7 +27,7 @@ import pandas as pd  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
 from evaluate import METRICS, _stage, frequency_baseline, score_fields, summarize  # noqa: E402
-from f1_prediction.db.engine import get_engine  # noqa: E402
+from f1_prediction.db.engine import get_engine, init_db  # noqa: E402
 from f1_prediction.simulation.race_sim import (  # noqa: E402
     add_pace_columns,
     estimate_params,
@@ -52,6 +52,15 @@ def load_sim_laps(engine) -> pd.DataFrame:
     laps = laps.merge(durations, on=["session_key", "driver_number", "lap_number"], how="left")
     laps = laps.merge(quali, on=["session_key", "driver_number"], how="left")
     return add_pace_columns(laps).reset_index(drop=True)
+
+
+def load_safety_cars(engine) -> pd.Series:
+    """Full safety car deployments per race, for races that have race-control records."""
+    with engine.connect() as conn:
+        return pd.read_sql(text(
+            "SELECT session_key, SUM(category = 'SafetyCar' AND message LIKE 'SAFETY CAR DEPLOYED%') AS n "
+            "FROM raw_race_control GROUP BY session_key"
+        ), conn).set_index("session_key")["n"]
 
 
 def _report(title: str, df: pd.DataFrame, keys: list[str], candidates: dict[str, pd.Series], reference: str) -> dict:
@@ -79,7 +88,9 @@ def main() -> None:
     logging.basicConfig(level=logging.WARNING)
 
     engine = get_engine()
+    init_db(engine)
     laps = load_sim_laps(engine)
+    safety_cars = load_safety_cars(engine)
     laps["stage"] = _stage(laps)
     pre = load_prerace_training(engine, max_year=9999).reset_index(drop=True)
     with engine.connect() as conn:
@@ -89,7 +100,7 @@ def main() -> None:
     in_parts, pre_parts, settings = [], [], {}
     for year in years[1:]:
         train = laps[laps["year"] < year]
-        params = settings[year] = estimate_params(train)
+        params = settings[year] = estimate_params(train, safety_cars)
 
         # in-race: every Nth lap of every race this season
         test = laps[(laps["year"] == year) & (laps["lap_number"] % args.every == 0)].copy()
