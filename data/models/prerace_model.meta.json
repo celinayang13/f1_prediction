@@ -1,0 +1,54 @@
+{
+  "model": "prerace",
+  "train_years": [
+    2022,
+    2023
+  ],
+  "val_year": 2024,
+  "n_train": 867,
+  "n_val": 478,
+  "brier_score": 0.0425,
+  "log_loss": 0.1608,
+  "n_val_races": 24,
+  "sum_to_one_min": 0.9999999999999997,
+  "sum_to_one_max": 1.0000000000000002,
+  "trained_at": "2026-11-12T08:05:02.957668+00:00",
+  "artifact_sha256": "7351f41b1655c237",
+  "train_dataset_hash": "20dd4f7e6d113e3c",
+  "n_train_races": 44,
+  "feature_cols": [
+    "qualifying_delta_to_pole",
+    "practice_pace_fp2",
+    "practice_pace_fp3",
+    "circuit_win_rate",
+    "championship_position",
+    "grid_position",
+    "driver_seasons_in_f1"
+  ],
+  "calibration": {
+    "method": "sigmoid",
+    "folds": "GroupKFold by session_key"
+  },
+  "normalization": "p / sum(p) within field",
+  "hyperparameters": {
+    "objective": "binary:logistic",
+    "colsample_bytree": 0.8,
+    "enable_categorical": false,
+    "eval_metric": "logloss",
+    "learning_rate": 0.05,
+    "max_depth": 3,
+    "missing": NaN,
+    "n_estimators": 200,
+    "scale_pos_weight": 18.704545454545453,
+    "subsample": 0.8,
+    "verbosity": 0
+  },
+  "library_versions": {
+    "xgboost": "3.2.0",
+    "scikit-learn": "1.9.1",
+    "numpy": "2.4.3",
+    "pandas": "2.3.3",
+    "joblib": "1.6.0"
+  },
+  "code_revision": "v1.0-10-g119e798-dirty"
+}

@@ -1,0 +1,61 @@
+{
+  "model": "inrace",
+  "train_years": [
+    2022,
+    2023
+  ],
+  "val_year": 2024,
+  "n_train": 47411,
+  "n_val": 26543,
+  "brier_score": 0.0224,
+  "log_loss": 0.0834,
+  "n_val_lap_groups": 1443,
+  "sum_to_one_min": 0.9999999999999997,
+  "sum_to_one_max": 1.0000000000000004,
+  "trained_at": "2026-11-12T08:05:07.223408+00:00",
+  "artifact_sha256": "cb4eb8fdb93e1598",
+  "train_dataset_hash": "e83b28203bad7774",
+  "n_train_races": 44,
+  "feature_cols": [
+    "gap_to_leader",
+    "tyre_age_laps",
+    "pit_stop_count",
+    "position",
+    "interval_ahead",
+    "interval_behind",
+    "pit_stop_delta",
+    "lap_number",
+    "laps_remaining",
+    "tyre_HARD",
+    "tyre_INTERMEDIATE",
+    "tyre_MEDIUM",
+    "tyre_SOFT",
+    "tyre_WET"
+  ],
+  "calibration": {
+    "method": "sigmoid",
+    "folds": "GroupKFold by session_key"
+  },
+  "normalization": "p / sum(p) within field",
+  "hyperparameters": {
+    "objective": "binary:logistic",
+    "colsample_bytree": 0.8,
+    "enable_categorical": false,
+    "eval_metric": "logloss",
+    "learning_rate": 0.05,
+    "max_depth": 3,
+    "missing": NaN,
+    "n_estimators": 200,
+    "scale_pos_weight": 17.397749320915793,
+    "subsample": 0.8,
+    "verbosity": 0
+  },
+  "library_versions": {
+    "xgboost": "3.2.0",
+    "scikit-learn": "1.9.1",
+    "numpy": "2.4.3",
+    "pandas": "2.3.3",
+    "joblib": "1.6.0"
+  },
+  "code_revision": "v1.0-10-g119e798-dirty"
+}
