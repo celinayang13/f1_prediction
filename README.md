@@ -9,7 +9,7 @@ FastF1 / OpenF1 → ingestion → SQLite raw tables → feature engineering
                                                        ↓
                                                 SQLite features
                                                        ↓
-                                       XGBoost models + calibration
+                                       field-choice win models     
                                                        ↓
                                             SQLite predictions
                                                        ↓
@@ -27,7 +27,7 @@ The prediction pipeline and dashboard run independently and share a SQLite datab
 | HTTP and retries | HTTPX, Tenacity |
 | Storage | SQLite, SQLAlchemy |
 | Feature engineering | pandas, NumPy |
-| Models | XGBoost, scikit-learn isotonic calibration |
+| Models | Field-choice model (conditional logit, fitted with SciPy); XGBoost kept as an evaluation challenger |
 | Model artifacts and normalization | joblib, SciPy |
 | Live scheduling | APScheduler |
 | Dashboard | Streamlit, Plotly |
@@ -40,6 +40,7 @@ Run commands from the repository root:
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
+python -m pip install -r requirements.lock  # exact versions the model artifacts were built with
 python -m pip install -e '.[dev]'
 ```
 
@@ -61,12 +62,12 @@ python scripts/build_features.py
 Train both models with 2024 held out for validation:
 
 ```bash
-python scripts/train.py --model prerace --val-year 2024
-python scripts/train.py --model inrace --val-year 2024
-python scripts/validate_model.py --val-year 2024
+python scripts/train.py --model prerace
+python scripts/train.py --model inrace
+python scripts/evaluate.py   # walk-forward: served model vs baselines and an XGBoost challenger
 ```
 
-Model artifacts live in `data/models/`. Retrain them in your environment if serialized artifacts are incompatible with installed dependency versions.
+Model artifacts live in `data/models/`, each with a `.meta.json` recording what it was trained on. `evaluate.py` writes a timestamped report to `data/eval/`. Retrain them in your environment if serialized artifacts are incompatible with installed dependency versions.
 
 ### Run the application
 

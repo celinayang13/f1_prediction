@@ -434,3 +434,53 @@ def test_inrace_tyre_and_laps_remaining(race_engine):
         assert remaining == expected_remaining, (
             f"Lap {lap}: expected laps_remaining={expected_remaining}, got {remaining}"
         )
+
+
+def test_positions_asof_lap_end_never_uses_future_records():
+    """OpenF1 positions (no lap number) align to laps by time, never from the future."""
+    import pandas as pd
+
+    from f1_prediction.features.inrace import _lap_end_times, _positions_asof_lap_end
+
+    laps = pd.DataFrame({
+        "driver_number": [1, 1],
+        "lap_number": [2, 3],
+        "lap_duration": [90.0, 90.0],
+        "date_start": ["2024-01-01T13:01:30+00:00", "2024-01-01T13:03:00.000000+00:00"],
+    })
+    pos = pd.DataFrame({
+        "driver_number": [1, 1, 1],
+        "lap_number": [0, 0, 0],
+        "position": [3, 2, 1],
+        # grid snapshot, a pass during lap 2, a pass one second after lap 3 ends
+        "date_recorded": [
+            "2024-01-01T12:50:00+00:00",
+            "2024-01-01T13:02:00.500000+00:00",
+            "2024-01-01T13:04:31+00:00",
+        ],
+    })
+    laps["lap_end"] = _lap_end_times(laps)
+    out = _positions_asof_lap_end(laps, pos).set_index("lap_number")["position"]
+    assert out.to_dict() == {2: 2, 3: 2}
+
+
+def test_finish_position_prefers_official_classification(tmp_path):
+    """A driver disqualified after the flag must not be the winner."""
+    from f1_prediction.features.prerace import compute_finish_position
+
+    engine = get_engine(str(tmp_path / "results.db"))
+    init_db(engine)
+    with engine.begin() as conn:
+        # On track: 63 first, 44 second
+        conn.execute(text(
+            "INSERT INTO raw_positions (session_key, driver_number, lap_number, position, date_recorded) VALUES "
+            "(1, 63, 0, 1, '2024-07-28T14:20:00+00:00'), (1, 44, 0, 2, '2024-07-28T14:20:00+00:00')"
+        ))
+        assert compute_finish_position(1, 63, conn) == 1  # no official results yet
+        # Officially: 63 disqualified, 44 wins
+        conn.execute(text(
+            "INSERT INTO raw_session_results (session_key, driver_number, position, dsq) VALUES "
+            "(1, 44, 1, 0), (1, 63, NULL, 1)"
+        ))
+        assert compute_finish_position(1, 44, conn) == 1
+        assert compute_finish_position(1, 63, conn) == 2

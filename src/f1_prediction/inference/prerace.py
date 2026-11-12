@@ -5,9 +5,9 @@ Loads the trained prerace_model.joblib artifact, computes win probabilities
 from the features_prerace rows for a given Race session, and writes them to
 the predictions table with prediction_type='prerace' (lap_number NULL).
 
-Reuses inference/features.py's load_model/predict_with_softmax verbatim —
-softmax is applied per session_key so probabilities sum to ~1.0 across the
-field (PRERACE-02). Do not reimplement softmax here (Pitfall 4/5).
+Reuses inference/features.py's load_model/predict_normalized verbatim —
+normalization is applied per session_key so probabilities sum to ~1.0 across the
+field (PRERACE-02). Do not reimplement normalization here (Pitfall 4/5).
 
 Security: all SQL uses text() with bound :param names — no f-string SQL (T-03-05).
 """
@@ -26,7 +26,7 @@ from f1_prediction.db.engine import get_engine
 from f1_prediction.inference.features import (
     PRERACE_FEATURE_COLS,
     load_model,
-    predict_with_softmax,
+    predict_normalized,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,8 @@ def compute_and_store_prerace(
             text(
                 "SELECT session_key, driver_number, qualifying_delta_to_pole, "
                 "practice_pace_fp2, practice_pace_fp3, circuit_win_rate, "
-                "championship_position, grid_position, driver_seasons_in_f1 "
+                "championship_position, grid_position, driver_seasons_in_f1, "
+                "recent_quali_delta "
                 "FROM features_prerace WHERE session_key = :sk"
             ),
             conn,
@@ -80,11 +81,11 @@ def compute_and_store_prerace(
         return 0
 
     # Reindex to the exact training-time column set/order (Pitfall 5) before
-    # handing off to predict_with_softmax, which itself selects feature_cols
+    # handing off to predict_normalized, which itself selects feature_cols
     # by name — this reindex is a defensive, explicit contract check.
-    df = df[["session_key", "driver_number", *PRERACE_FEATURE_COLS]]
+    df = df[["session_key", "driver_number", *PRERACE_FEATURE_COLS, "recent_quali_delta"]]
 
-    result = predict_with_softmax(model, df, PRERACE_FEATURE_COLS)
+    result = predict_normalized(model, df, PRERACE_FEATURE_COLS)
 
     computed_at = datetime.now(timezone.utc).isoformat()
     rows = [

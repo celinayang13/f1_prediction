@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
@@ -43,10 +44,26 @@ _IDENTIFIER_TO_SESSION_TYPE: dict[str, str] = {
     "Practice 3": "Practice 3",
     "Sprint": "Sprint",
     "Sprint Shootout": "Sprint Shootout",
+    # OpenF1 renamed the Sprint Shootout to "Sprint Qualifying" from 2024
+    "Sprint Qualifying": "Sprint Shootout",
 }
+
+
+def _canonical_session_type(raw: dict) -> str:
+    """
+    Canonical session_type for an OpenF1 /v1/sessions row.
+
+    OpenF1's session_type is only a coarse category ("Race" for both the
+    Grand Prix and the Sprint, "Practice" for FP1-3); session_name is the
+    specific one, so it takes precedence.
+    """
+    raw_type = raw.get("session_name") or raw.get("session_type") or ""
+    return _IDENTIFIER_TO_SESSION_TYPE.get(raw_type, raw_type)
 
 # Default identifiers for OpenF1 year loads (D-06: no FP1; D-07: include Sprint/SS)
 _DEFAULT_IDENTIFIERS = ["FP2", "FP3", "Q", "R", "S", "SS"]
+
+_SECONDS_BETWEEN_SESSIONS = 13
 
 
 def _normalize_openf1_session(raw: dict) -> dict:
@@ -55,9 +72,7 @@ def _normalize_openf1_session(raw: dict) -> dict:
 
     Extracts only documented fields (T-02-01 per-field whitelist).
     """
-    # Map OpenF1 session_type to canonical values
-    raw_type = raw.get("session_type") or raw.get("session_name") or ""
-    session_type = _IDENTIFIER_TO_SESSION_TYPE.get(raw_type, raw_type)
+    session_type = _canonical_session_type(raw)
 
     return {
         "session_key": int(raw["session_key"]),
@@ -437,11 +452,14 @@ def load_openf1_year(
 
     results: list[dict] = []
     for sess in all_sessions:
-        sess_type = sess.get("session_type") or sess.get("session_name") or ""
-        canonical_type = _IDENTIFIER_TO_SESSION_TYPE.get(sess_type, sess_type)
+        canonical_type = _canonical_session_type(sess)
+
+        if sess.get("is_cancelled"):
+            logger.info("Skipping cancelled session %s", sess.get("session_key"))
+            continue
 
         if canonical_type not in target_types:
-            logger.debug("Skipping session_type=%s (not in target identifiers)", sess_type)
+            logger.debug("Skipping session_type=%s (not in target identifiers)", canonical_type)
             continue
 
         if rounds is not None:
@@ -462,6 +480,10 @@ def load_openf1_year(
         try:
             result = load_openf1_session(year_val, sk, engine=engine)
             results.append(result)
+            if not result.get("skipped"):
+                # OpenF1 allows 30 requests/minute and a session costs 6:
+                # pace the loop instead of burning the client's retries.
+                time.sleep(_SECONDS_BETWEEN_SESSIONS)
         except Exception:
             logger.exception("Failed to load OpenF1 session %d", sk)
             results.append({
@@ -476,3 +498,102 @@ def load_openf1_year(
             })
 
     return results
+
+
+def load_openf1_results(*, engine: Engine | None = None) -> int:
+    """
+    Fetch the official classification for every OpenF1 Race session that
+    has none stored yet (idempotent, one request per session).
+
+    Returns:
+        Number of raw_session_results rows inserted.
+    """
+    if engine is None:
+        engine = get_engine()
+    init_db(engine)
+
+    with engine.connect() as conn:
+        session_keys = [
+            int(r[0]) for r in conn.execute(text(
+                "SELECT session_key FROM raw_sessions "
+                "WHERE source = 'openf1' AND session_type = 'Race' "
+                "AND session_key NOT IN (SELECT session_key FROM raw_session_results) "
+                "ORDER BY session_key"
+            ))
+        ]
+
+    async def _fetch(session_key: int):
+        async with OpenF1Client() as client:
+            return await client.session_result(session_key)
+
+    inserted = 0
+    for sk in session_keys:
+        try:
+            results = asyncio.run(_fetch(sk))
+        except Exception:
+            logger.exception("Failed to load OpenF1 results for session %d", sk)
+            continue
+        inserted += bulk_insert_rows(engine, "raw_session_results", [
+            {
+                "session_key": sk,
+                "driver_number": _safe_int(r.get("driver_number")),
+                "position": _safe_int(r.get("position")),
+                "dnf": _safe_bool(r.get("dnf")),
+                "dns": _safe_bool(r.get("dns")),
+                "dsq": _safe_bool(r.get("dsq")),
+            }
+            for r in results
+            if _safe_int(r.get("driver_number")) is not None
+        ])
+        time.sleep(60 / 28)  # stay under OpenF1's 30 requests/minute
+    return inserted
+
+
+def load_openf1_drivers(*, engine: Engine | None = None) -> int:
+    """
+    Fetch driver/team metadata for every OpenF1 Race session that has none
+    stored yet (idempotent, one request per session). This is the only
+    source of which team a driver raced for.
+
+    Returns:
+        Number of raw_drivers rows inserted.
+    """
+    if engine is None:
+        engine = get_engine()
+    init_db(engine)
+
+    with engine.connect() as conn:
+        session_keys = [
+            int(r[0]) for r in conn.execute(text(
+                "SELECT session_key FROM raw_sessions "
+                "WHERE source = 'openf1' AND session_type = 'Race' "
+                "AND session_key NOT IN (SELECT session_key FROM raw_drivers) "
+                "ORDER BY session_key"
+            ))
+        ]
+
+    async def _fetch(session_key: int):
+        async with OpenF1Client() as client:
+            return await client.drivers(session_key)
+
+    inserted = 0
+    for sk in session_keys:
+        try:
+            drivers = asyncio.run(_fetch(sk))
+        except Exception:
+            logger.exception("Failed to load OpenF1 drivers for session %d", sk)
+            continue
+        inserted += bulk_insert_rows(engine, "raw_drivers", [
+            {
+                "session_key": sk,
+                "driver_number": _safe_int(d.get("driver_number")),
+                "full_name": d.get("full_name"),
+                "name_acronym": d.get("name_acronym"),
+                "team_name": d.get("team_name"),
+                "team_colour": d.get("team_colour"),
+            }
+            for d in drivers
+            if _safe_int(d.get("driver_number")) is not None
+        ])
+        time.sleep(60 / 28)  # stay under OpenF1's 30 requests/minute
+    return inserted

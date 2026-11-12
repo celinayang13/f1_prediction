@@ -6,9 +6,9 @@ with all features_inrace columns computed from raw_laps, raw_positions,
 raw_stints, and raw_pit_stops.
 
 Approximations (documented per plan):
-  gap_to_leader:  cumulative sum of lap_duration per driver; gap vs leader's cumsum.
-                  This is the standard F1 timing-screen interpretation for historical data.
-                  Live race: OpenF1 /v1/intervals provides the actual value.
+  gap_to_leader:  time the driver completed the lap minus the first driver to
+                  complete that lap. OpenF1: from lap timestamps. FastF1: from
+                  cumulative lap durations (no timestamps stored).
   interval_ahead: gap_to_leader[this driver] - gap_to_leader[driver at position-1] (same lap).
   interval_behind:gap_to_leader[driver at position+1] - gap_to_leader[this driver] (same lap).
   grid_position:  taken from lap-1 raw_positions (see prerace.compute_grid_position).
@@ -23,6 +23,45 @@ import pandas as pd
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
+
+
+def _lap_end_times(laps_df: pd.DataFrame) -> pd.Series:
+    """
+    Timestamp at which each driver completed each lap (NaT when the source
+    has no lap timestamps, i.e. FastF1 rows).
+
+    A lap ends when the driver's next lap starts; the last known lap falls
+    back to date_start + lap_duration. Using the next lap's start keeps laps
+    whose duration OpenF1 left empty (often lap 1 and pit laps).
+    """
+    start = pd.to_datetime(laps_df["date_start"], utc=True, format="ISO8601")
+    by_driver = laps_df["driver_number"]
+    next_is_consecutive = (
+        laps_df.groupby("driver_number")["lap_number"].shift(-1) == laps_df["lap_number"] + 1
+    )
+    next_start = start.groupby(by_driver).shift(-1).where(next_is_consecutive)
+    return next_start.fillna(start + pd.to_timedelta(laps_df["lap_duration"], unit="s"))
+
+
+def _positions_asof_lap_end(laps_df: pd.DataFrame, pos_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Assign each (driver, lap) the latest position recorded at or before the
+    end of that lap. Never selects an observation later than the lap end,
+    so a lap's features cannot see the future.
+
+    Returns a DataFrame with columns driver_number, lap_number, position.
+    """
+    laps = laps_df.dropna(subset=["lap_end"])
+    pos = pos_df.dropna(subset=["date_recorded"]).copy()
+    pos["date_recorded"] = pd.to_datetime(pos["date_recorded"], utc=True, format="ISO8601")
+    merged = pd.merge_asof(
+        laps.sort_values("lap_end"),
+        pos.sort_values("date_recorded")[["driver_number", "date_recorded", "position"]],
+        left_on="lap_end",
+        right_on="date_recorded",
+        by="driver_number",
+    )
+    return merged.dropna(subset=["position"])[["driver_number", "lap_number", "position"]]
 
 
 def compute_inrace_features_for_session(session_key: int, conn) -> pd.DataFrame:
@@ -49,14 +88,14 @@ def compute_inrace_features_for_session(session_key: int, conn) -> pd.DataFrame:
     # ------------------------------------------------------------------
     laps_q = text(
         """
-        SELECT driver_number, lap_number, lap_duration
+        SELECT driver_number, lap_number, lap_duration, date_start
         FROM raw_laps
         WHERE session_key = :sk
-          AND lap_duration IS NOT NULL
         ORDER BY driver_number, lap_number
         """
     )
     laps_df = pd.read_sql(laps_q, conn, params={"sk": session_key})
+    laps_df["lap_end"] = _lap_end_times(laps_df)
     if laps_df.empty:
         return pd.DataFrame(
             columns=[
@@ -71,13 +110,17 @@ def compute_inrace_features_for_session(session_key: int, conn) -> pd.DataFrame:
     # ------------------------------------------------------------------
     pos_q = text(
         """
-        SELECT driver_number, lap_number, position
+        SELECT driver_number, lap_number, position, date_recorded
         FROM raw_positions
         WHERE session_key = :sk
-        ORDER BY driver_number, lap_number
+        ORDER BY driver_number, lap_number, date_recorded
         """
     )
     pos_df = pd.read_sql(pos_q, conn, params={"sk": session_key})
+    # OpenF1 /v1/position rows are timestamped events with no lap number
+    # (stored as lap_number=0) — align them to laps by time instead.
+    if not pos_df.empty and (pos_df["lap_number"] == 0).all():
+        pos_df = _positions_asof_lap_end(laps_df, pos_df)
 
     # ------------------------------------------------------------------
     # 3. Load raw_stints
@@ -118,17 +161,25 @@ def compute_inrace_features_for_session(session_key: int, conn) -> pd.DataFrame:
         total_laps = int(laps_df["lap_number"].max())
 
     # ------------------------------------------------------------------
-    # 6. Compute gap_to_leader via cumulative lap times
+    # 6. Compute gap_to_leader: time each driver completed the lap, minus
+    #    the first driver to complete that lap
     # ------------------------------------------------------------------
     laps_df = laps_df.sort_values(["driver_number", "lap_number"]).copy()
-    laps_df["cumsum_lap"] = laps_df.groupby("driver_number")["lap_duration"].cumsum()
-
-    # For each lap_number, the leader's cumsum (minimum cumsum across all drivers)
-    leader_cumsum = (
-        laps_df.groupby("lap_number")["cumsum_lap"].min().rename("leader_cumsum")
+    if laps_df["lap_end"].notna().any():
+        # OpenF1: real timestamps
+        laps_df["elapsed"] = (laps_df["lap_end"] - laps_df["lap_end"].min()).dt.total_seconds()
+    else:
+        # FastF1: lap durations only. A missing duration is filled with that
+        # lap's field median — leaving it out would put the driver a whole lap
+        # "ahead" for the rest of the race and shift everyone's gap.
+        duration = laps_df["lap_duration"].fillna(
+            laps_df.groupby("lap_number")["lap_duration"].transform("median")
+        )
+        laps_df["elapsed"] = duration.groupby(laps_df["driver_number"]).cumsum()
+    laps_df = laps_df.dropna(subset=["elapsed"])
+    laps_df["gap_to_leader"] = (
+        laps_df["elapsed"] - laps_df.groupby("lap_number")["elapsed"].transform("min")
     )
-    laps_df = laps_df.merge(leader_cumsum, on="lap_number", how="left")
-    laps_df["gap_to_leader"] = laps_df["cumsum_lap"] - laps_df["leader_cumsum"]
 
     # ------------------------------------------------------------------
     # 7. Merge position data
@@ -152,6 +203,10 @@ def compute_inrace_features_for_session(session_key: int, conn) -> pd.DataFrame:
         gap_by_pos = laps_df[["lap_number", "driver_number", "gap_to_leader", "position"]].copy()
         gap_by_pos = gap_by_pos.dropna(subset=["position"])
         gap_by_pos["position"] = gap_by_pos["position"].astype(int)
+        # As-of positions are sampled at each driver's own lap end, so two drivers
+        # can briefly share a position on the same lap — keep one so the joins
+        # below cannot fan out into duplicate (driver, lap) rows.
+        gap_by_pos = gap_by_pos.drop_duplicates(subset=["lap_number", "position"])
 
         # CR-03: removed dead first merge that joined each car to itself (position P
         # to position P) — it was unused and risked column-name conflicts/type coercion.

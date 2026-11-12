@@ -283,8 +283,13 @@ def main() -> None:
             }
             print(json.dumps(output))
 
+    if any(y <= 2022 for y in args.years):
+        logger.info("FastF1 official results loaded: %d rows", fastf1_loader.load_fastf1_results())
+
     # Fix round_number=0 for 2023+ sessions before feature build (D-01, Pitfall 1)
     if any(y >= 2023 for y in args.years):
+        logger.info("Official results loaded: %d rows", openf1_loader.load_openf1_results())
+        logger.info("Driver/team rows loaded: %d", openf1_loader.load_openf1_drivers())
         fix_round_numbers(get_engine())
         logger.info("round_number fix applied for 2023+ sessions")
 

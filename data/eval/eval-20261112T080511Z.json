@@ -1,0 +1,1377 @@
+{
+  "evaluated_at": "2026-11-12T08:05:08.969389+00:00",
+  "kind": "development backtest (2024 and 2025 have informed model selection)",
+  "code_revision": "v1.0-10-g119e798-dirty",
+  "brier_convention": "sum over drivers of (p_i - y_i)^2 per field, averaged per race then over races",
+  "interval": "95% percentile bootstrap over whole races, 2000 resamples, seed 0",
+  "prerace": {
+    "artifact": {
+      "model": "prerace",
+      "train_years": [
+        2022,
+        2023
+      ],
+      "val_year": 2024,
+      "n_train": 867,
+      "n_val": 478,
+      "brier_score": 0.0425,
+      "log_loss": 0.1608,
+      "n_val_races": 24,
+      "sum_to_one_min": 0.9999999999999997,
+      "sum_to_one_max": 1.0000000000000002,
+      "trained_at": "2026-11-12T08:05:02.957668+00:00",
+      "artifact_sha256": "7351f41b1655c237",
+      "train_dataset_hash": "20dd4f7e6d113e3c",
+      "n_train_races": 44,
+      "feature_cols": [
+        "qualifying_delta_to_pole",
+        "practice_pace_fp2",
+        "practice_pace_fp3",
+        "circuit_win_rate",
+        "championship_position",
+        "grid_position",
+        "driver_seasons_in_f1"
+      ],
+      "calibration": {
+        "method": "sigmoid",
+        "folds": "GroupKFold by session_key"
+      },
+      "normalization": "p / sum(p) within field",
+      "hyperparameters": {
+        "objective": "binary:logistic",
+        "colsample_bytree": 0.8,
+        "enable_categorical": false,
+        "eval_metric": "logloss",
+        "learning_rate": 0.05,
+        "max_depth": 3,
+        "missing": NaN,
+        "n_estimators": 200,
+        "scale_pos_weight": 18.704545454545453,
+        "subsample": 0.8,
+        "verbosity": 0
+      },
+      "library_versions": {
+        "xgboost": "3.2.0",
+        "scikit-learn": "1.9.1",
+        "numpy": "2.4.3",
+        "pandas": "2.3.3",
+        "joblib": "1.6.0"
+      },
+      "code_revision": "v1.0-10-g119e798-dirty"
+    },
+    "eval_dataset_hash": "f4d74dbb750667f3",
+    "results": {
+      "2024": {
+        "n_races": 24,
+        "n_fields": 24,
+        "n_fields_dropped_no_single_winner": 0,
+        "fields_with_zero_probability_winner": 0,
+        "candidates": {
+          "uniform": {
+            "brier": {
+              "mean": 0.9498,
+              "ci95": [
+                0.9495,
+                0.95
+              ]
+            },
+            "nll": {
+              "mean": 2.9915,
+              "ci95": [
+                2.985,
+                2.9957
+              ]
+            },
+            "top1": {
+              "mean": 0.0502,
+              "ci95": [
+                0.05,
+                0.0505
+              ]
+            }
+          },
+          "grid": {
+            "brier": {
+              "mean": 0.7259,
+              "ci95": [
+                0.5985,
+                0.857
+              ]
+            },
+            "nll": {
+              "mean": 1.8197,
+              "ci95": [
+                1.4291,
+                2.2699
+              ]
+            },
+            "top1": {
+              "mean": 0.4583,
+              "ci95": [
+                0.25,
+                0.6667
+              ]
+            }
+          },
+          "championship": {
+            "brier": {
+              "mean": 0.8564,
+              "ci95": [
+                0.6914,
+                1.0238
+              ]
+            },
+            "nll": {
+              "mean": 2.3708,
+              "ci95": [
+                1.8667,
+                2.9143
+              ]
+            },
+            "top1": {
+              "mean": 0.3354,
+              "ci95": [
+                0.1312,
+                0.5417
+              ]
+            }
+          },
+          "model": {
+            "brier": {
+              "mean": 0.7889,
+              "ci95": [
+                0.5982,
+                0.9885
+              ]
+            },
+            "nll": {
+              "mean": 2.1746,
+              "ci95": [
+                1.5491,
+                2.8584
+              ]
+            },
+            "top1": {
+              "mean": 0.4583,
+              "ci95": [
+                0.25,
+                0.6667
+              ]
+            }
+          },
+          "model_odds_normalized": {
+            "brier": {
+              "mean": 0.8075,
+              "ci95": [
+                0.5513,
+                1.0719
+              ]
+            },
+            "nll": {
+              "mean": 2.3542,
+              "ci95": [
+                1.5423,
+                3.2516
+              ]
+            },
+            "top1": {
+              "mean": 0.4583,
+              "ci95": [
+                0.25,
+                0.6667
+              ]
+            }
+          }
+        },
+        "model_minus_grid": {
+          "brier": {
+            "mean": 0.063,
+            "ci95": [
+              -0.072,
+              0.2034
+            ]
+          },
+          "nll": {
+            "mean": 0.3549,
+            "ci95": [
+              -0.0392,
+              0.7753
+            ]
+          },
+          "top1": {
+            "mean": 0.0,
+            "ci95": [
+              -0.2083,
+              0.2083
+            ]
+          }
+        }
+      },
+      "2025": {
+        "n_races": 24,
+        "n_fields": 24,
+        "n_fields_dropped_no_single_winner": 0,
+        "fields_with_zero_probability_winner": 0,
+        "candidates": {
+          "uniform": {
+            "brier": {
+              "mean": 0.9498,
+              "ci95": [
+                0.9495,
+                0.95
+              ]
+            },
+            "nll": {
+              "mean": 2.9915,
+              "ci95": [
+                2.985,
+                2.9957
+              ]
+            },
+            "top1": {
+              "mean": 0.0502,
+              "ci95": [
+                0.05,
+                0.0505
+              ]
+            }
+          },
+          "grid": {
+            "brier": {
+              "mean": 0.5893,
+              "ci95": [
+                0.484,
+                0.7035
+              ]
+            },
+            "nll": {
+              "mean": 1.3698,
+              "ci95": [
+                1.0979,
+                1.6572
+              ]
+            },
+            "top1": {
+              "mean": 0.6667,
+              "ci95": [
+                0.4583,
+                0.8333
+              ]
+            }
+          },
+          "championship": {
+            "brier": {
+              "mean": 0.9425,
+              "ci95": [
+                0.7989,
+                1.0721
+              ]
+            },
+            "nll": {
+              "mean": 2.3715,
+              "ci95": [
+                1.9715,
+                2.7474
+              ]
+            },
+            "top1": {
+              "mean": 0.2104,
+              "ci95": [
+                0.0479,
+                0.3771
+              ]
+            }
+          },
+          "model": {
+            "brier": {
+              "mean": 0.7077,
+              "ci95": [
+                0.5477,
+                0.8648
+              ]
+            },
+            "nll": {
+              "mean": 1.5173,
+              "ci95": [
+                1.1659,
+                1.8856
+              ]
+            },
+            "top1": {
+              "mean": 0.375,
+              "ci95": [
+                0.2083,
+                0.5833
+              ]
+            }
+          },
+          "model_odds_normalized": {
+            "brier": {
+              "mean": 0.7937,
+              "ci95": [
+                0.5713,
+                1.0126
+              ]
+            },
+            "nll": {
+              "mean": 1.6347,
+              "ci95": [
+                1.1534,
+                2.1257
+              ]
+            },
+            "top1": {
+              "mean": 0.375,
+              "ci95": [
+                0.2083,
+                0.5833
+              ]
+            }
+          }
+        },
+        "model_minus_grid": {
+          "brier": {
+            "mean": 0.1184,
+            "ci95": [
+              -0.0246,
+              0.2608
+            ]
+          },
+          "nll": {
+            "mean": 0.1474,
+            "ci95": [
+              -0.231,
+              0.5559
+            ]
+          },
+          "top1": {
+            "mean": -0.2917,
+            "ci95": [
+              -0.5,
+              -0.125
+            ]
+          }
+        }
+      },
+      "all": {
+        "n_races": 48,
+        "n_fields": 48,
+        "n_fields_dropped_no_single_winner": 0,
+        "fields_with_zero_probability_winner": 0,
+        "candidates": {
+          "uniform": {
+            "brier": {
+              "mean": 0.9498,
+              "ci95": [
+                0.9496,
+                0.9499
+              ]
+            },
+            "nll": {
+              "mean": 2.9915,
+              "ci95": [
+                2.9872,
+                2.9947
+              ]
+            },
+            "top1": {
+              "mean": 0.0502,
+              "ci95": [
+                0.0501,
+                0.0504
+              ]
+            }
+          },
+          "grid": {
+            "brier": {
+              "mean": 0.6576,
+              "ci95": [
+                0.5734,
+                0.7497
+              ]
+            },
+            "nll": {
+              "mean": 1.5948,
+              "ci95": [
+                1.35,
+                1.8797
+              ]
+            },
+            "top1": {
+              "mean": 0.5625,
+              "ci95": [
+                0.4167,
+                0.7083
+              ]
+            }
+          },
+          "championship": {
+            "brier": {
+              "mean": 0.8994,
+              "ci95": [
+                0.7877,
+                0.9991
+              ]
+            },
+            "nll": {
+              "mean": 2.3711,
+              "ci95": [
+                2.0514,
+                2.6859
+              ]
+            },
+            "top1": {
+              "mean": 0.2729,
+              "ci95": [
+                0.1663,
+                0.3979
+              ]
+            }
+          },
+          "model": {
+            "brier": {
+              "mean": 0.7483,
+              "ci95": [
+                0.6258,
+                0.8721
+              ]
+            },
+            "nll": {
+              "mean": 1.846,
+              "ci95": [
+                1.4757,
+                2.2369
+              ]
+            },
+            "top1": {
+              "mean": 0.4167,
+              "ci95": [
+                0.2708,
+                0.5625
+              ]
+            }
+          },
+          "model_odds_normalized": {
+            "brier": {
+              "mean": 0.8006,
+              "ci95": [
+                0.6337,
+                0.9735
+              ]
+            },
+            "nll": {
+              "mean": 1.9944,
+              "ci95": [
+                1.5106,
+                2.5037
+              ]
+            },
+            "top1": {
+              "mean": 0.4167,
+              "ci95": [
+                0.2708,
+                0.5625
+              ]
+            }
+          }
+        },
+        "model_minus_grid": {
+          "brier": {
+            "mean": 0.0907,
+            "ci95": [
+              -0.008,
+              0.1886
+            ]
+          },
+          "nll": {
+            "mean": 0.2512,
+            "ci95": [
+              -0.0421,
+              0.538
+            ]
+          },
+          "top1": {
+            "mean": -0.1458,
+            "ci95": [
+              -0.2917,
+              0.0
+            ]
+          }
+        }
+      }
+    }
+  },
+  "inrace": {
+    "artifact": {
+      "model": "inrace",
+      "train_years": [
+        2022,
+        2023
+      ],
+      "val_year": 2024,
+      "n_train": 47411,
+      "n_val": 26543,
+      "brier_score": 0.0224,
+      "log_loss": 0.0834,
+      "n_val_lap_groups": 1443,
+      "sum_to_one_min": 0.9999999999999997,
+      "sum_to_one_max": 1.0000000000000004,
+      "trained_at": "2026-11-12T08:05:07.223408+00:00",
+      "artifact_sha256": "cb4eb8fdb93e1598",
+      "train_dataset_hash": "e83b28203bad7774",
+      "n_train_races": 44,
+      "feature_cols": [
+        "gap_to_leader",
+        "tyre_age_laps",
+        "pit_stop_count",
+        "position",
+        "interval_ahead",
+        "interval_behind",
+        "pit_stop_delta",
+        "lap_number",
+        "laps_remaining",
+        "tyre_HARD",
+        "tyre_INTERMEDIATE",
+        "tyre_MEDIUM",
+        "tyre_SOFT",
+        "tyre_WET"
+      ],
+      "calibration": {
+        "method": "sigmoid",
+        "folds": "GroupKFold by session_key"
+      },
+      "normalization": "p / sum(p) within field",
+      "hyperparameters": {
+        "objective": "binary:logistic",
+        "colsample_bytree": 0.8,
+        "enable_categorical": false,
+        "eval_metric": "logloss",
+        "learning_rate": 0.05,
+        "max_depth": 3,
+        "missing": NaN,
+        "n_estimators": 200,
+        "scale_pos_weight": 17.397749320915793,
+        "subsample": 0.8,
+        "verbosity": 0
+      },
+      "library_versions": {
+        "xgboost": "3.2.0",
+        "scikit-learn": "1.9.1",
+        "numpy": "2.4.3",
+        "pandas": "2.3.3",
+        "joblib": "1.6.0"
+      },
+      "code_revision": "v1.0-10-g119e798-dirty"
+    },
+    "eval_dataset_hash": "a4a6cc0477925342",
+    "results": {
+      "2024": {
+        "n_races": 24,
+        "n_fields": 1443,
+        "n_fields_dropped_no_single_winner": 0,
+        "fields_with_zero_probability_winner": 0,
+        "candidates": {
+          "uniform": {
+            "brier": {
+              "mean": 0.9451,
+              "ci95": [
+                0.9436,
+                0.9466
+              ]
+            },
+            "nll": {
+              "mean": 2.9084,
+              "ci95": [
+                2.8823,
+                2.9344
+              ]
+            },
+            "top1": {
+              "mean": 0.0549,
+              "ci95": [
+                0.0534,
+                0.0564
+              ]
+            }
+          },
+          "position": {
+            "brier": {
+              "mean": 0.4138,
+              "ci95": [
+                0.2749,
+                0.5713
+              ]
+            },
+            "nll": {
+              "mean": 0.9199,
+              "ci95": [
+                0.6249,
+                1.2592
+              ]
+            },
+            "top1": {
+              "mean": 0.7417,
+              "ci95": [
+                0.6279,
+                0.8465
+              ]
+            }
+          },
+          "model": {
+            "brier": {
+              "mean": 0.3857,
+              "ci95": [
+                0.2444,
+                0.5468
+              ]
+            },
+            "nll": {
+              "mean": 0.8985,
+              "ci95": [
+                0.5385,
+                1.3383
+              ]
+            },
+            "top1": {
+              "mean": 0.7457,
+              "ci95": [
+                0.6316,
+                0.8511
+              ]
+            }
+          },
+          "model_odds_normalized": {
+            "brier": {
+              "mean": 0.4238,
+              "ci95": [
+                0.2506,
+                0.6173
+              ]
+            },
+            "nll": {
+              "mean": 1.0372,
+              "ci95": [
+                0.5642,
+                1.6086
+              ]
+            },
+            "top1": {
+              "mean": 0.7457,
+              "ci95": [
+                0.6316,
+                0.8511
+              ]
+            }
+          }
+        },
+        "model_minus_position": {
+          "brier": {
+            "mean": -0.0281,
+            "ci95": [
+              -0.065,
+              0.006
+            ]
+          },
+          "nll": {
+            "mean": -0.0213,
+            "ci95": [
+              -0.1583,
+              0.136
+            ]
+          },
+          "top1": {
+            "mean": 0.004,
+            "ci95": [
+              0.0009,
+              0.0074
+            ]
+          }
+        },
+        "by_stage": {
+          "early": {
+            "position": {
+              "brier": {
+                "mean": 0.6011,
+                "ci95": [
+                  0.4214,
+                  0.8036
+                ]
+              },
+              "nll": {
+                "mean": 1.3206,
+                "ci95": [
+                  0.9141,
+                  1.8151
+                ]
+              },
+              "top1": {
+                "mean": 0.5923,
+                "ci95": [
+                  0.4153,
+                  0.7506
+                ]
+              }
+            },
+            "model": {
+              "brier": {
+                "mean": 0.5971,
+                "ci95": [
+                  0.3849,
+                  0.831
+                ]
+              },
+              "nll": {
+                "mean": 1.3899,
+                "ci95": [
+                  0.8254,
+                  2.0759
+                ]
+              },
+              "top1": {
+                "mean": 0.6005,
+                "ci95": [
+                  0.421,
+                  0.765
+                ]
+              }
+            }
+          },
+          "middle": {
+            "position": {
+              "brier": {
+                "mean": 0.4057,
+                "ci95": [
+                  0.2244,
+                  0.6089
+                ]
+              },
+              "nll": {
+                "mean": 0.9034,
+                "ci95": [
+                  0.5523,
+                  1.3108
+                ]
+              },
+              "top1": {
+                "mean": 0.7607,
+                "ci95": [
+                  0.6215,
+                  0.8847
+                ]
+              }
+            },
+            "model": {
+              "brier": {
+                "mean": 0.3796,
+                "ci95": [
+                  0.2151,
+                  0.5689
+                ]
+              },
+              "nll": {
+                "mean": 0.8646,
+                "ci95": [
+                  0.4931,
+                  1.3089
+                ]
+              },
+              "top1": {
+                "mean": 0.7648,
+                "ci95": [
+                  0.6248,
+                  0.8881
+                ]
+              }
+            }
+          },
+          "late": {
+            "position": {
+              "brier": {
+                "mean": 0.2368,
+                "ci95": [
+                  0.064,
+                  0.4478
+                ]
+              },
+              "nll": {
+                "mean": 0.5408,
+                "ci95": [
+                  0.1873,
+                  0.9655
+                ]
+              },
+              "top1": {
+                "mean": 0.8705,
+                "ci95": [
+                  0.7495,
+                  0.9693
+                ]
+              }
+            },
+            "model": {
+              "brier": {
+                "mean": 0.1829,
+                "ci95": [
+                  0.0556,
+                  0.3388
+                ]
+              },
+              "nll": {
+                "mean": 0.4477,
+                "ci95": [
+                  0.1502,
+                  0.8505
+                ]
+              },
+              "top1": {
+                "mean": 0.8705,
+                "ci95": [
+                  0.7495,
+                  0.9693
+                ]
+              }
+            }
+          }
+        }
+      },
+      "2025": {
+        "n_races": 24,
+        "n_fields": 1420,
+        "n_fields_dropped_no_single_winner": 1,
+        "fields_with_zero_probability_winner": 0,
+        "candidates": {
+          "uniform": {
+            "brier": {
+              "mean": 0.9452,
+              "ci95": [
+                0.9435,
+                0.9467
+              ]
+            },
+            "nll": {
+              "mean": 2.9098,
+              "ci95": [
+                2.8804,
+                2.936
+              ]
+            },
+            "top1": {
+              "mean": 0.0548,
+              "ci95": [
+                0.0533,
+                0.0565
+              ]
+            }
+          },
+          "position": {
+            "brier": {
+              "mean": 0.3474,
+              "ci95": [
+                0.2298,
+                0.4837
+              ]
+            },
+            "nll": {
+              "mean": 0.7536,
+              "ci95": [
+                0.5442,
+                0.9917
+              ]
+            },
+            "top1": {
+              "mean": 0.7984,
+              "ci95": [
+                0.6979,
+                0.8838
+              ]
+            }
+          },
+          "model": {
+            "brier": {
+              "mean": 0.3423,
+              "ci95": [
+                0.2404,
+                0.4566
+              ]
+            },
+            "nll": {
+              "mean": 0.682,
+              "ci95": [
+                0.4976,
+                0.9058
+              ]
+            },
+            "top1": {
+              "mean": 0.7939,
+              "ci95": [
+                0.695,
+                0.8777
+              ]
+            }
+          },
+          "model_odds_normalized": {
+            "brier": {
+              "mean": 0.3524,
+              "ci95": [
+                0.2181,
+                0.508
+              ]
+            },
+            "nll": {
+              "mean": 0.7378,
+              "ci95": [
+                0.4624,
+                1.0627
+              ]
+            },
+            "top1": {
+              "mean": 0.7939,
+              "ci95": [
+                0.695,
+                0.8777
+              ]
+            }
+          }
+        },
+        "model_minus_position": {
+          "brier": {
+            "mean": -0.005,
+            "ci95": [
+              -0.0461,
+              0.0383
+            ]
+          },
+          "nll": {
+            "mean": -0.0716,
+            "ci95": [
+              -0.1628,
+              0.017
+            ]
+          },
+          "top1": {
+            "mean": -0.0044,
+            "ci95": [
+              -0.012,
+              0.0024
+            ]
+          }
+        },
+        "by_stage": {
+          "early": {
+            "position": {
+              "brier": {
+                "mean": 0.4463,
+                "ci95": [
+                  0.3093,
+                  0.6089
+                ]
+              },
+              "nll": {
+                "mean": 1.0023,
+                "ci95": [
+                  0.7049,
+                  1.3303
+                ]
+              },
+              "top1": {
+                "mean": 0.7248,
+                "ci95": [
+                  0.5715,
+                  0.8588
+                ]
+              }
+            },
+            "model": {
+              "brier": {
+                "mean": 0.4157,
+                "ci95": [
+                  0.2813,
+                  0.5681
+                ]
+              },
+              "nll": {
+                "mean": 0.8591,
+                "ci95": [
+                  0.582,
+                  1.1826
+                ]
+              },
+              "top1": {
+                "mean": 0.7159,
+                "ci95": [
+                  0.5613,
+                  0.8536
+                ]
+              }
+            }
+          },
+          "middle": {
+            "position": {
+              "brier": {
+                "mean": 0.413,
+                "ci95": [
+                  0.2358,
+                  0.6081
+                ]
+              },
+              "nll": {
+                "mean": 0.8683,
+                "ci95": [
+                  0.5546,
+                  1.2125
+                ]
+              },
+              "top1": {
+                "mean": 0.752,
+                "ci95": [
+                  0.6149,
+                  0.8749
+                ]
+              }
+            },
+            "model": {
+              "brier": {
+                "mean": 0.4068,
+                "ci95": [
+                  0.2579,
+                  0.5691
+                ]
+              },
+              "nll": {
+                "mean": 0.7676,
+                "ci95": [
+                  0.5069,
+                  1.0643
+                ]
+              },
+              "top1": {
+                "mean": 0.7498,
+                "ci95": [
+                  0.6129,
+                  0.8719
+                ]
+              }
+            }
+          },
+          "late": {
+            "position": {
+              "brier": {
+                "mean": 0.223,
+                "ci95": [
+                  0.085,
+                  0.3959
+                ]
+              },
+              "nll": {
+                "mean": 0.5069,
+                "ci95": [
+                  0.2459,
+                  0.8242
+                ]
+              },
+              "top1": {
+                "mean": 0.8791,
+                "ci95": [
+                  0.7796,
+                  0.9573
+                ]
+              }
+            },
+            "model": {
+              "brier": {
+                "mean": 0.2309,
+                "ci95": [
+                  0.1088,
+                  0.3836
+                ]
+              },
+              "nll": {
+                "mean": 0.517,
+                "ci95": [
+                  0.2466,
+                  0.8738
+                ]
+              },
+              "top1": {
+                "mean": 0.8747,
+                "ci95": [
+                  0.7778,
+                  0.9516
+                ]
+              }
+            }
+          }
+        }
+      },
+      "all": {
+        "n_races": 48,
+        "n_fields": 2863,
+        "n_fields_dropped_no_single_winner": 1,
+        "fields_with_zero_probability_winner": 0,
+        "candidates": {
+          "uniform": {
+            "brier": {
+              "mean": 0.9451,
+              "ci95": [
+                0.944,
+                0.9462
+              ]
+            },
+            "nll": {
+              "mean": 2.9091,
+              "ci95": [
+                2.8892,
+                2.9281
+              ]
+            },
+            "top1": {
+              "mean": 0.0549,
+              "ci95": [
+                0.0538,
+                0.056
+              ]
+            }
+          },
+          "position": {
+            "brier": {
+              "mean": 0.3806,
+              "ci95": [
+                0.2859,
+                0.4799
+              ]
+            },
+            "nll": {
+              "mean": 0.8367,
+              "ci95": [
+                0.6467,
+                1.0387
+              ]
+            },
+            "top1": {
+              "mean": 0.7701,
+              "ci95": [
+                0.6979,
+                0.8401
+              ]
+            }
+          },
+          "model": {
+            "brier": {
+              "mean": 0.364,
+              "ci95": [
+                0.2745,
+                0.4592
+              ]
+            },
+            "nll": {
+              "mean": 0.7903,
+              "ci95": [
+                0.581,
+                1.0289
+              ]
+            },
+            "top1": {
+              "mean": 0.7698,
+              "ci95": [
+                0.6985,
+                0.8393
+              ]
+            }
+          },
+          "model_odds_normalized": {
+            "brier": {
+              "mean": 0.3881,
+              "ci95": [
+                0.2773,
+                0.5064
+              ]
+            },
+            "nll": {
+              "mean": 0.8875,
+              "ci95": [
+                0.5993,
+                1.2083
+              ]
+            },
+            "top1": {
+              "mean": 0.7698,
+              "ci95": [
+                0.6985,
+                0.8393
+              ]
+            }
+          }
+        },
+        "model_minus_position": {
+          "brier": {
+            "mean": -0.0166,
+            "ci95": [
+              -0.044,
+              0.0117
+            ]
+          },
+          "nll": {
+            "mean": -0.0465,
+            "ci95": [
+              -0.1313,
+              0.0451
+            ]
+          },
+          "top1": {
+            "mean": -0.0002,
+            "ci95": [
+              -0.0047,
+              0.0037
+            ]
+          }
+        },
+        "by_stage": {
+          "early": {
+            "position": {
+              "brier": {
+                "mean": 0.5237,
+                "ci95": [
+                  0.4066,
+                  0.6487
+                ]
+              },
+              "nll": {
+                "mean": 1.1614,
+                "ci95": [
+                  0.9011,
+                  1.4482
+                ]
+              },
+              "top1": {
+                "mean": 0.6586,
+                "ci95": [
+                  0.5452,
+                  0.7654
+                ]
+              }
+            },
+            "model": {
+              "brier": {
+                "mean": 0.5064,
+                "ci95": [
+                  0.3794,
+                  0.6438
+                ]
+              },
+              "nll": {
+                "mean": 1.1245,
+                "ci95": [
+                  0.7862,
+                  1.5021
+                ]
+              },
+              "top1": {
+                "mean": 0.6582,
+                "ci95": [
+                  0.5404,
+                  0.7652
+                ]
+              }
+            }
+          },
+          "middle": {
+            "position": {
+              "brier": {
+                "mean": 0.4094,
+                "ci95": [
+                  0.2777,
+                  0.5466
+                ]
+              },
+              "nll": {
+                "mean": 0.8858,
+                "ci95": [
+                  0.6407,
+                  1.1457
+                ]
+              },
+              "top1": {
+                "mean": 0.7564,
+                "ci95": [
+                  0.6619,
+                  0.847
+                ]
+              }
+            },
+            "model": {
+              "brier": {
+                "mean": 0.3932,
+                "ci95": [
+                  0.2781,
+                  0.5142
+                ]
+              },
+              "nll": {
+                "mean": 0.8161,
+                "ci95": [
+                  0.5827,
+                  1.0782
+                ]
+              },
+              "top1": {
+                "mean": 0.7573,
+                "ci95": [
+                  0.6631,
+                  0.8477
+                ]
+              }
+            }
+          },
+          "late": {
+            "position": {
+              "brier": {
+                "mean": 0.2299,
+                "ci95": [
+                  0.1127,
+                  0.3614
+                ]
+              },
+              "nll": {
+                "mean": 0.5238,
+                "ci95": [
+                  0.2931,
+                  0.7772
+                ]
+              },
+              "top1": {
+                "mean": 0.8748,
+                "ci95": [
+                  0.7997,
+                  0.9418
+                ]
+              }
+            },
+            "model": {
+              "brier": {
+                "mean": 0.2069,
+                "ci95": [
+                  0.1135,
+                  0.3146
+                ]
+              },
+              "nll": {
+                "mean": 0.4824,
+                "ci95": [
+                  0.2635,
+                  0.7468
+                ]
+              },
+              "top1": {
+                "mean": 0.8726,
+                "ci95": [
+                  0.7983,
+                  0.9385
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -310,6 +310,7 @@ class FeaturesPrerace(Base):
     driver_seasons_in_f1 = Column(Integer)         # ≥ 1 for any driver in raw_sessions
     finish_position = Column(Integer)              # target label; NULL for non-race sessions
     team_name = Column(String)                     # constructor name
+    recent_quali_delta = Column(Float)             # mean qualifying gap to pole, previous 5 races; NULL if none
 
     __table_args__ = (
         PrimaryKeyConstraint("session_key", "driver_number", name="pk_features_prerace"),
@@ -445,3 +446,21 @@ class FeaturesInrace(Base):
             name="pk_features_inrace",
         ),
     )
+
+
+class RawSessionResult(Base):
+    """
+    Official classification for a session, one row per driver (OpenF1
+    /v1/session_result). position is NULL for unclassified drivers
+    (DNF / DNS / DSQ) — this is what distinguishes a post-race
+    disqualification from the on-track finishing order in raw_positions.
+    """
+
+    __tablename__ = "raw_session_results"
+
+    session_key = Column(Integer, primary_key=True)
+    driver_number = Column(Integer, primary_key=True)
+    position = Column(Integer)
+    dnf = Column(Boolean)
+    dns = Column(Boolean)
+    dsq = Column(Boolean)
