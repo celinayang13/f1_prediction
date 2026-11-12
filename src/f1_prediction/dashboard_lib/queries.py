@@ -27,6 +27,9 @@ __all__ = [
     "get_race_display_name",
     "load_inrace_predictions",
     "get_latest_inrace_lap",
+    "list_races",
+    "get_session_window",
+    "get_official_winner",
 ]
 
 # Neutral gray fallback when a driver has no raw_drivers match (no OpenF1
@@ -199,3 +202,51 @@ def get_race_display_name(session_key: int) -> Optional[str]:
     country_name, circuit_short_name, _session_name = row
     parts = [p for p in (country_name, circuit_short_name) if p]
     return " — ".join(parts) if parts else f"Session {session_key}"
+
+
+def list_races() -> pd.DataFrame:
+    """
+    Every Race session, most recent first, for the race selector.
+
+    Returns:
+        DataFrame with columns: session_key, year, country_name,
+        circuit_short_name, date_start.
+    """
+    with _engine().connect() as conn:
+        return pd.read_sql(
+            text(
+                "SELECT session_key, year, country_name, circuit_short_name, date_start "
+                "FROM raw_sessions WHERE session_type = 'Race' "
+                "ORDER BY date_start DESC"
+            ),
+            conn,
+        )
+
+
+def get_session_window(session_key: int) -> "tuple[Optional[str], Optional[str]]":
+    """Return (date_start, date_end) for a session, or (None, None) if unknown."""
+    with _engine().connect() as conn:
+        row = conn.execute(
+            text("SELECT date_start, date_end FROM raw_sessions WHERE session_key = :sk"),
+            {"sk": session_key},
+        ).fetchone()
+    return (row[0], row[1]) if row else (None, None)
+
+
+def get_official_winner(session_key: int) -> Optional[str]:
+    """
+    Name of the officially classified winner, or None if the result is not
+    stored yet (falls back to the driver number when no name is known).
+    """
+    with _engine().connect() as conn:
+        row = conn.execute(
+            text(
+                "SELECT COALESCE(d.full_name, CAST(r.driver_number AS TEXT)) "
+                "FROM raw_session_results r "
+                "LEFT JOIN raw_drivers d "
+                "  ON d.session_key = r.session_key AND d.driver_number = r.driver_number "
+                "WHERE r.session_key = :sk AND r.position = 1 LIMIT 1"
+            ),
+            {"sk": session_key},
+        ).fetchone()
+    return row[0] if row else None
