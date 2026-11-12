@@ -162,6 +162,10 @@ class OpenF1Client:
         """Fetch intervals from /v1/intervals for a session."""
         return await self._fetch("intervals", {"session_key": session_key})
 
+    async def session_result(self, session_key: int) -> list[dict]:
+        """Fetch the official classification from /v1/session_result for a session."""
+        return await self._fetch("session_result", {"session_key": session_key})
+
     async def drivers(self, session_key: int) -> list[dict]:
         """Fetch driver metadata from /v1/drivers for a session."""
         return await self._fetch("drivers", {"session_key": session_key})

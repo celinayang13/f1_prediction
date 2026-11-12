@@ -226,7 +226,7 @@ def train_prerace_model(
     Train a calibrated XGBoost pre-race win probability classifier.
 
     Uses scale_pos_weight to handle extreme class imbalance (1 winner per
-    ~20 drivers). CalibratedClassifierCV with isotonic regression converts
+    ~20 drivers). CalibratedClassifierCV with sigmoid (Platt) scaling converts
     raw XGBoost scores to calibrated probabilities.
 
     CRITICAL: cv=5 (integer default), NOT cv='prefit' (removed in scikit-learn 1.x).
@@ -274,7 +274,7 @@ def train_prerace_model(
         eval_metric="logloss",
         verbosity=0,
     )
-    model = CalibratedClassifierCV(base_clf, cv=cv, method="isotonic")
+    model = CalibratedClassifierCV(base_clf, cv=cv, method="sigmoid")
     model.fit(X_train, y_train)
     return model
 
@@ -343,7 +343,7 @@ def train_inrace_model(
         eval_metric="logloss",
         verbosity=0,
     )
-    model = CalibratedClassifierCV(base_clf, cv=cv, method="isotonic")
+    model = CalibratedClassifierCV(base_clf, cv=cv, method="sigmoid")
     model.fit(X_train, y_train)
     return model
 

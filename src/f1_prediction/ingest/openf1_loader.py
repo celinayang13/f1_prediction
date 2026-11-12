@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
@@ -61,6 +62,8 @@ def _canonical_session_type(raw: dict) -> str:
 
 # Default identifiers for OpenF1 year loads (D-06: no FP1; D-07: include Sprint/SS)
 _DEFAULT_IDENTIFIERS = ["FP2", "FP3", "Q", "R", "S", "SS"]
+
+_SECONDS_BETWEEN_SESSIONS = 13
 
 
 def _normalize_openf1_session(raw: dict) -> dict:
@@ -451,6 +454,10 @@ def load_openf1_year(
     for sess in all_sessions:
         canonical_type = _canonical_session_type(sess)
 
+        if sess.get("is_cancelled"):
+            logger.info("Skipping cancelled session %s", sess.get("session_key"))
+            continue
+
         if canonical_type not in target_types:
             logger.debug("Skipping session_type=%s (not in target identifiers)", canonical_type)
             continue
@@ -473,6 +480,10 @@ def load_openf1_year(
         try:
             result = load_openf1_session(year_val, sk, engine=engine)
             results.append(result)
+            if not result.get("skipped"):
+                # OpenF1 allows 30 requests/minute and a session costs 6:
+                # pace the loop instead of burning the client's retries.
+                time.sleep(_SECONDS_BETWEEN_SESSIONS)
         except Exception:
             logger.exception("Failed to load OpenF1 session %d", sk)
             results.append({
@@ -487,3 +498,52 @@ def load_openf1_year(
             })
 
     return results
+
+
+def load_openf1_results(*, engine: Engine | None = None) -> int:
+    """
+    Fetch the official classification for every OpenF1 Race session that
+    has none stored yet (idempotent, one request per session).
+
+    Returns:
+        Number of raw_session_results rows inserted.
+    """
+    if engine is None:
+        engine = get_engine()
+    init_db(engine)
+
+    with engine.connect() as conn:
+        session_keys = [
+            int(r[0]) for r in conn.execute(text(
+                "SELECT session_key FROM raw_sessions "
+                "WHERE source = 'openf1' AND session_type = 'Race' "
+                "AND session_key NOT IN (SELECT session_key FROM raw_session_results) "
+                "ORDER BY session_key"
+            ))
+        ]
+
+    async def _fetch(session_key: int):
+        async with OpenF1Client() as client:
+            return await client.session_result(session_key)
+
+    inserted = 0
+    for sk in session_keys:
+        try:
+            results = asyncio.run(_fetch(sk))
+        except Exception:
+            logger.exception("Failed to load OpenF1 results for session %d", sk)
+            continue
+        inserted += bulk_insert_rows(engine, "raw_session_results", [
+            {
+                "session_key": sk,
+                "driver_number": _safe_int(r.get("driver_number")),
+                "position": _safe_int(r.get("position")),
+                "dnf": _safe_bool(r.get("dnf")),
+                "dns": _safe_bool(r.get("dns")),
+                "dsq": _safe_bool(r.get("dsq")),
+            }
+            for r in results
+            if _safe_int(r.get("driver_number")) is not None
+        ])
+        time.sleep(60 / 28)  # stay under OpenF1's 30 requests/minute
+    return inserted

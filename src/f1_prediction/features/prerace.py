@@ -386,11 +386,16 @@ def compute_grid_position(session_key: int, driver_number: int, conn) -> Optiona
     """
     Approximate the driver's starting grid position for the race.
 
-    Grid position is derived from raw_positions WHERE lap_number = 1,
-    taking the first observed position record. This is an approximation —
-    the lap-1 position reflects the order at the start of the first racing
-    lap, which closely mirrors the starting grid (subject to formation lap
-    incidents or immediate overtakes).
+    FastF1 sessions: the first position record of lap 1. This is an
+    approximation — the lap-1 position reflects the order at the start of the
+    first racing lap, which closely mirrors the starting grid (subject to
+    formation lap incidents or immediate overtakes).
+
+    OpenF1 sessions: positions carry no lap number (stored as lap_number=0),
+    so the earliest record is used. OpenF1 publishes the grid order as an
+    initial snapshot before the start, penalties already applied.
+    # shortcut: relies on that initial snapshot, switch to OpenF1
+    # /v1/starting_grid if a session is found without one.
 
     FastF1's session.results.GridPosition would be more accurate but was
     not stored during Plan 02 ingest to avoid schema complexity. This
@@ -409,7 +414,7 @@ def compute_grid_position(session_key: int, driver_number: int, conn) -> Optiona
         """
         SELECT position
         FROM raw_positions
-        WHERE session_key = :sk AND driver_number = :dn AND lap_number = 1
+        WHERE session_key = :sk AND driver_number = :dn AND lap_number <= 1
         ORDER BY date_recorded ASC
         LIMIT 1
         """
@@ -464,12 +469,31 @@ def compute_finish_position(session_key: int, driver_number: int, conn) -> Optio
     Returns:
         Finishing position (1-based int), or None if no position data.
     """
+    # Official classification wins over on-track order when we have it: a
+    # driver disqualified after the flag (Russell, Belgium 2024) crossed the
+    # line first but did not win. Unclassified drivers (DNF/DNS/DSQ) rank
+    # behind every classified finisher.
+    official = conn.execute(
+        text(
+            """
+            SELECT position,
+                   (SELECT COUNT(*) FROM raw_session_results
+                    WHERE session_key = :sk AND position IS NOT NULL)
+            FROM raw_session_results
+            WHERE session_key = :sk AND driver_number = :dn
+            """
+        ),
+        {"sk": session_key, "dn": driver_number},
+    ).fetchone()
+    if official is not None:
+        return int(official[0]) if official[0] is not None else int(official[1]) + 1
+
     q = text(
         """
         SELECT position
         FROM raw_positions
         WHERE session_key = :sk AND driver_number = :dn
-        ORDER BY lap_number DESC
+        ORDER BY lap_number DESC, date_recorded DESC
         LIMIT 1
         """
     )

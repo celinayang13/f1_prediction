@@ -25,6 +25,31 @@ from sqlalchemy import text
 logger = logging.getLogger(__name__)
 
 
+def _positions_asof_lap_end(laps_df: pd.DataFrame, pos_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Assign each (driver, lap) the latest position recorded at or before the
+    end of that lap. Never selects an observation later than the lap end,
+    so a lap's features cannot see the future.
+
+    Returns a DataFrame with columns driver_number, lap_number, position.
+    """
+    laps = laps_df.dropna(subset=["date_start", "lap_duration"]).copy()
+    laps["lap_end"] = (
+        pd.to_datetime(laps["date_start"], utc=True, format="ISO8601")
+        + pd.to_timedelta(laps["lap_duration"], unit="s")
+    )
+    pos = pos_df.dropna(subset=["date_recorded"]).copy()
+    pos["date_recorded"] = pd.to_datetime(pos["date_recorded"], utc=True, format="ISO8601")
+    merged = pd.merge_asof(
+        laps.sort_values("lap_end"),
+        pos.sort_values("date_recorded")[["driver_number", "date_recorded", "position"]],
+        left_on="lap_end",
+        right_on="date_recorded",
+        by="driver_number",
+    )
+    return merged.dropna(subset=["position"])[["driver_number", "lap_number", "position"]]
+
+
 def compute_inrace_features_for_session(session_key: int, conn) -> pd.DataFrame:
     """
     Compute all features_inrace rows for a race session.
@@ -49,7 +74,7 @@ def compute_inrace_features_for_session(session_key: int, conn) -> pd.DataFrame:
     # ------------------------------------------------------------------
     laps_q = text(
         """
-        SELECT driver_number, lap_number, lap_duration
+        SELECT driver_number, lap_number, lap_duration, date_start
         FROM raw_laps
         WHERE session_key = :sk
           AND lap_duration IS NOT NULL
@@ -71,13 +96,17 @@ def compute_inrace_features_for_session(session_key: int, conn) -> pd.DataFrame:
     # ------------------------------------------------------------------
     pos_q = text(
         """
-        SELECT driver_number, lap_number, position
+        SELECT driver_number, lap_number, position, date_recorded
         FROM raw_positions
         WHERE session_key = :sk
-        ORDER BY driver_number, lap_number
+        ORDER BY driver_number, lap_number, date_recorded
         """
     )
     pos_df = pd.read_sql(pos_q, conn, params={"sk": session_key})
+    # OpenF1 /v1/position rows are timestamped events with no lap number
+    # (stored as lap_number=0) — align them to laps by time instead.
+    if not pos_df.empty and (pos_df["lap_number"] == 0).all():
+        pos_df = _positions_asof_lap_end(laps_df, pos_df)
 
     # ------------------------------------------------------------------
     # 3. Load raw_stints
@@ -152,6 +181,10 @@ def compute_inrace_features_for_session(session_key: int, conn) -> pd.DataFrame:
         gap_by_pos = laps_df[["lap_number", "driver_number", "gap_to_leader", "position"]].copy()
         gap_by_pos = gap_by_pos.dropna(subset=["position"])
         gap_by_pos["position"] = gap_by_pos["position"].astype(int)
+        # As-of positions are sampled at each driver's own lap end, so two drivers
+        # can briefly share a position on the same lap — keep one so the joins
+        # below cannot fan out into duplicate (driver, lap) rows.
+        gap_by_pos = gap_by_pos.drop_duplicates(subset=["lap_number", "position"])
 
         # CR-03: removed dead first merge that joined each car to itself (position P
         # to position P) — it was unused and risked column-name conflicts/type coercion.

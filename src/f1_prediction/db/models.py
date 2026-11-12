@@ -445,3 +445,21 @@ class FeaturesInrace(Base):
             name="pk_features_inrace",
         ),
     )
+
+
+class RawSessionResult(Base):
+    """
+    Official classification for a session, one row per driver (OpenF1
+    /v1/session_result). position is NULL for unclassified drivers
+    (DNF / DNS / DSQ) — this is what distinguishes a post-race
+    disqualification from the on-track finishing order in raw_positions.
+    """
+
+    __tablename__ = "raw_session_results"
+
+    session_key = Column(Integer, primary_key=True)
+    driver_number = Column(Integer, primary_key=True)
+    position = Column(Integer)
+    dnf = Column(Boolean)
+    dns = Column(Boolean)
+    dsq = Column(Boolean)
