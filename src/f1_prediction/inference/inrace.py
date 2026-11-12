@@ -92,11 +92,14 @@ def compute_and_store_inrace_latest_lap(
 
         df = pd.read_sql(
             text(
-                "SELECT session_key, driver_number, lap_number, gap_to_leader, "
-                "tyre_age_laps, pit_stop_count, position, interval_ahead, "
-                "interval_behind, pit_stop_delta, laps_remaining, tyre_compound "
-                "FROM features_inrace "
-                "WHERE session_key = :sk AND lap_number = :lap"
+                "SELECT fi.session_key, fi.driver_number, fi.lap_number, fi.gap_to_leader, "
+                "fi.tyre_age_laps, fi.pit_stop_count, fi.position, fi.interval_ahead, "
+                "fi.interval_behind, fi.pit_stop_delta, fi.laps_remaining, fi.tyre_compound, "
+                "fp.grid_position, fp.recent_quali_delta "
+                "FROM features_inrace fi "
+                "LEFT JOIN features_prerace fp "
+                "  ON fp.session_key = fi.session_key AND fp.driver_number = fi.driver_number "
+                "WHERE fi.session_key = :sk AND fi.lap_number = :lap"
             ),
             conn,
             params={"sk": session_key, "lap": int(max_lap)},
@@ -116,7 +119,10 @@ def compute_and_store_inrace_latest_lap(
     # NOTE: lap_number is one of the 9 INRACE_NUMERIC_FEATURE_COLS already —
     # it must not be listed a second time here, or selecting it by name
     # yields a duplicate column and a 15-wide (not 14-wide) feature matrix.
-    df = df[["session_key", "driver_number", *INRACE_NUMERIC_FEATURE_COLS, "tyre_compound"]]
+    df = df[[
+        "session_key", "driver_number", *INRACE_NUMERIC_FEATURE_COLS, "tyre_compound",
+        "grid_position", "recent_quali_delta",
+    ]]
 
     result = predict_inrace_normalized(model, df)
 

@@ -423,6 +423,37 @@ def compute_grid_position(session_key: int, driver_number: int, conn) -> Optiona
     return int(row[0]) if row is not None else None
 
 
+def compute_recent_quali_delta(driver_number: int, year: int, round_number: int, conn) -> Optional[float]:
+    """
+    Driver's mean qualifying gap to pole (seconds, each capped at 3.0) over
+    their previous 5 races — a rolling measure of car-plus-driver pace that
+    uses only races before this one.
+
+    Reads earlier features_prerace rows, so sessions must be built in
+    chronological order (build_all_features does).
+
+    Returns:
+        Mean gap in seconds, or None if the driver has no earlier qualifying data.
+    """
+    q = text(
+        """
+        SELECT AVG(MIN(delta, 3.0)) FROM (
+            SELECT fp.qualifying_delta_to_pole AS delta
+            FROM features_prerace fp
+            JOIN raw_sessions rs ON fp.session_key = rs.session_key
+            WHERE fp.driver_number = :dn
+              AND rs.session_type = 'Race'
+              AND fp.qualifying_delta_to_pole IS NOT NULL
+              AND (rs.year < :year OR (rs.year = :year AND rs.round_number < :rn))
+            ORDER BY rs.year DESC, rs.round_number DESC
+            LIMIT 5
+        )
+        """
+    )
+    row = conn.execute(q, {"dn": driver_number, "year": year, "rn": round_number}).fetchone()
+    return float(row[0]) if (row is not None and row[0] is not None) else None
+
+
 def compute_driver_seasons(driver_number: int, year: int, conn) -> int:
     """
     Count distinct seasons in which the driver appears in raw_laps, up to

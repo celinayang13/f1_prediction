@@ -4,14 +4,11 @@ Tests for the pre-race model training pipeline (Plan 02-02).
 Covers:
   - Feature set matches the 7 D-03 columns (PRERACE-01)
   - is_winner label excludes DNF leaders via lap-completion filter (Pitfall 3)
-  - CalibratedClassifierCV is returned by train_prerace_model
+  - FieldChoiceModel is returned by train_prerace_model
   - Per-race normalization probabilities sum to 1.0 ± 1e-6 (PRERACE-02)
   - Model artifact exists and is loadable (PRERACE-03)
-  - Static AST check: cv='prefit' absent (Pitfall 2 regression)
-  - Static AST check: scale_pos_weight present, is_unbalance absent (Pitfall 7 regression)
 
 All unit tests use prerace_train_engine (isolated SQLite, no data/f1.db writes).
-Tests 6 and 7 are static source-text checks (no fixture needed).
 """
 from __future__ import annotations
 
@@ -43,7 +40,7 @@ from train import (  # noqa: E402
     train_inrace_model,
     train_prerace_model,
 )
-from sklearn.calibration import CalibratedClassifierCV  # noqa: E402
+from f1_prediction.inference.field_choice import _INPUT_BUILDERS, FieldChoiceModel  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +174,9 @@ def test_prerace_feature_set(prerace_train_engine):
         assert col in df.columns, f"Missing metadata column: {col}"
 
     # No extra columns beyond the expected set
-    expected_cols = set(PRERACE_FEATURE_COLS) | {"session_key", "driver_number", "is_winner", "year", "round_number"}
+    expected_cols = set(PRERACE_FEATURE_COLS) | {
+        "session_key", "driver_number", "is_winner", "year", "round_number", "recent_quali_delta",
+    }
     extra_cols = set(df.columns) - expected_cols
     assert extra_cols == set(), f"Unexpected extra columns: {extra_cols}"
 
@@ -213,31 +212,25 @@ def test_prerace_is_winner_excludes_dnf(prerace_train_engine):
 
 
 # ---------------------------------------------------------------------------
-# Test 3: train_prerace_model returns CalibratedClassifierCV
+# Test 3: train_prerace_model returns a fitted FieldChoiceModel
 # ---------------------------------------------------------------------------
 
-def test_prerace_train_returns_calibrated_model(prerace_train_engine):
-    """train_prerace_model returns a CalibratedClassifierCV with predict_proba."""
+def test_prerace_train_returns_field_choice_model(prerace_train_engine):
+    """train_prerace_model returns a FieldChoiceModel that scores every driver."""
     df = load_prerace_training(prerace_train_engine, max_year=2024)
     model = train_prerace_model(df, train_years=[2022, 2023], cv=2)
 
-    assert isinstance(model, CalibratedClassifierCV), (
-        f"Expected CalibratedClassifierCV, got {type(model).__name__}"
+    assert isinstance(model, FieldChoiceModel), (
+        f"Expected FieldChoiceModel, got {type(model).__name__}"
     )
-    assert hasattr(model, "predict_proba"), "Model missing predict_proba method"
 
-    # Predict on the 3 drivers in session 4 (year 2024)
+    # Score the 3 drivers in session 4 (year 2024)
     val_df = df[df["year"] == 2024]
     assert len(val_df) == 3, f"Expected 3 val rows (1 session × 3 drivers), got {len(val_df)}"
 
-    proba = model.predict_proba(val_df[PRERACE_FEATURE_COLS].values)
-    assert proba.shape == (3, 2), (
-        f"predict_proba shape should be (3, 2), got {proba.shape}"
-    )
-    # Each row's probabilities must sum to ~1.0
-    assert np.allclose(proba.sum(axis=1), 1.0, atol=1e-6), (
-        f"predict_proba rows do not sum to 1.0: {proba.sum(axis=1)}"
-    )
+    scores = model.scores(val_df)
+    assert scores.shape == (3,), f"scores shape should be (3,), got {scores.shape}"
+    assert np.isfinite(scores).all() and (scores > 0).all(), f"scores must be finite and positive: {scores}"
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +256,7 @@ def test_prerace_sum_to_one(prerace_train_engine):
 # ---------------------------------------------------------------------------
 
 def test_prerace_artifact_exists(tmp_path, prerace_train_engine):
-    """PRERACE-03: save_model writes a loadable CalibratedClassifierCV artifact."""
+    """PRERACE-03: save_model writes a loadable FieldChoiceModel artifact."""
     df = load_prerace_training(prerace_train_engine, max_year=2024)
     model = train_prerace_model(df, train_years=[2022, 2023], cv=2)
 
@@ -274,65 +267,12 @@ def test_prerace_artifact_exists(tmp_path, prerace_train_engine):
     assert artifact_path.exists(), f"Artifact not found at {artifact_path}"
     assert artifact_path.stat().st_size > 0, "Artifact file is empty"
 
-    # Round-trip: loaded model must have predict_proba
+    # Round-trip: the loaded model must score identically
     loaded = joblib.load(artifact_path)
-    assert hasattr(loaded, "predict_proba"), "Loaded artifact missing predict_proba"
-    assert type(loaded).__name__ == "CalibratedClassifierCV", (
+    assert isinstance(loaded, FieldChoiceModel), (
         f"Loaded artifact has unexpected type: {type(loaded).__name__}"
     )
-
-
-# ---------------------------------------------------------------------------
-# Test 6: Static AST — no cv='prefit' (Pitfall 2 regression)
-# ---------------------------------------------------------------------------
-
-def test_prerace_no_cv_prefit_in_source():
-    """
-    AST-level regression: train.py must NOT pass cv='prefit' to any call.
-    cv='prefit' was removed in scikit-learn 1.x and raises InvalidParameterError.
-    This check scans actual AST Call nodes, ignoring comments and docstrings.
-    """
-    train_src = Path(__file__).resolve().parents[1] / "scripts" / "train.py"
-    tree = ast.parse(train_src.read_text())
-
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        for kw in (node.keywords or []):
-            if kw.arg == "cv" and isinstance(kw.value, ast.Constant):
-                assert kw.value.value != "prefit", (
-                    f"cv='prefit' found in train.py at line {node.lineno} — "
-                    "this was removed in scikit-learn 1.x. Use cv=5 (integer)."
-                )
-
-
-# ---------------------------------------------------------------------------
-# Test 7: Static AST — scale_pos_weight present, is_unbalance absent (Pitfall 7)
-# ---------------------------------------------------------------------------
-
-def test_prerace_uses_scale_pos_weight():
-    """
-    AST-level regression: train.py must use scale_pos_weight (XGBoost) and
-    must NOT use is_unbalance (LightGBM-only parameter silently ignored by XGBoost).
-    """
-    train_src = Path(__file__).resolve().parents[1] / "scripts" / "train.py"
-    tree = ast.parse(train_src.read_text())
-
-    all_kwargs = [
-        kw.arg
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        for kw in (node.keywords or [])
-    ]
-
-    assert "scale_pos_weight" in all_kwargs, (
-        "scale_pos_weight kwarg not found in any call in train.py — "
-        "XGBoost requires scale_pos_weight for class imbalance (not is_unbalance)"
-    )
-    assert "is_unbalance" not in all_kwargs, (
-        "is_unbalance kwarg found in train.py — this is a LightGBM-only parameter "
-        "silently ignored by XGBoost. Use scale_pos_weight instead."
-    )
+    assert np.allclose(loaded.scores(df), model.scores(df))
 
 
 # ===========================================================================
@@ -530,18 +470,19 @@ def test_inrace_pit_tyre_features_present(inrace_train_engine):
 
 
 # ---------------------------------------------------------------------------
-# Test 11: train_inrace_model returns CalibratedClassifierCV
+# Test 11: train_inrace_model returns a fitted FieldChoiceModel
 # ---------------------------------------------------------------------------
 
-def test_inrace_train_returns_calibrated_model(inrace_train_engine):
-    """train_inrace_model returns a CalibratedClassifierCV with predict_proba."""
+def test_inrace_train_returns_field_choice_model(inrace_train_engine):
+    """train_inrace_model returns a FieldChoiceModel that scores every row."""
     df = load_inrace_training(inrace_train_engine, max_year=2024)
     model = train_inrace_model(df, train_years=[2022, 2023], cv=2)
 
-    assert isinstance(model, CalibratedClassifierCV), (
-        f"Expected CalibratedClassifierCV, got {type(model).__name__}"
+    assert isinstance(model, FieldChoiceModel), (
+        f"Expected FieldChoiceModel, got {type(model).__name__}"
     )
-    assert hasattr(model, "predict_proba"), "Model missing predict_proba method"
+    scores = model.scores(df)
+    assert np.isfinite(scores).all() and (scores > 0).all()
 
 
 # ---------------------------------------------------------------------------
@@ -599,7 +540,7 @@ def test_inrace_lap_by_lap_variation(inrace_train_engine):
 # ---------------------------------------------------------------------------
 
 def test_inrace_artifact_exists(tmp_path, inrace_train_engine):
-    """In-race model artifact: save_model writes a loadable CalibratedClassifierCV."""
+    """In-race model artifact: save_model writes a loadable FieldChoiceModel."""
     df = load_inrace_training(inrace_train_engine, max_year=2024)
     model = train_inrace_model(df, train_years=[2022, 2023], cv=2)
 
@@ -610,34 +551,23 @@ def test_inrace_artifact_exists(tmp_path, inrace_train_engine):
     assert artifact_path.stat().st_size > 0, "Artifact file is empty"
 
     loaded = joblib.load(artifact_path)
-    assert hasattr(loaded, "predict_proba"), "Loaded artifact missing predict_proba"
-    assert type(loaded).__name__ == "CalibratedClassifierCV", (
+    assert isinstance(loaded, FieldChoiceModel), (
         f"Loaded artifact has unexpected type: {type(loaded).__name__}"
     )
+    assert np.allclose(loaded.scores(df), model.scores(df))
 
 
 # ---------------------------------------------------------------------------
-# Test 15: Static source check — in-race normalization grouping (INRACE-02)
+# Test 15: in-race fields are (session_key, lap_number) (INRACE-02)
 # ---------------------------------------------------------------------------
 
-def test_inrace_normalization_grouped_by_lap_in_source():
+def test_inrace_field_is_one_lap_of_one_race():
     """
-    Static regression: train.py must group in-race normalization by
-    (session_key, lap_number), not by session_key alone.
-    Grouping by session_key only would average across laps, violating INRACE-02.
+    The in-race model must treat each lap of each race as its own field.
+    Grouping by session_key alone would collapse all laps into one distribution.
     """
-    train_src = Path(__file__).resolve().parents[1] / "scripts" / "train.py"
-    src = train_src.read_text()
-
-    # Accept either single or double quotes
-    assert (
-        'groupby(["session_key", "lap_number"])' in src
-        or "groupby(['session_key', 'lap_number'])" in src
-    ), (
-        "scripts/train.py does not contain groupby(['session_key', 'lap_number']) — "
-        "in-race normalization must group by both session_key AND lap_number (INRACE-02). "
-        "Grouping by session_key alone would collapse all laps into one distribution."
-    )
+    assert _INPUT_BUILDERS["inrace"][1] == ["session_key", "lap_number"]
+    assert _INPUT_BUILDERS["prerace"][1] == ["session_key"]
 
 
 # ---------------------------------------------------------------------------

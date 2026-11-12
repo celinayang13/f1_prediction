@@ -547,3 +547,53 @@ def load_openf1_results(*, engine: Engine | None = None) -> int:
         ])
         time.sleep(60 / 28)  # stay under OpenF1's 30 requests/minute
     return inserted
+
+
+def load_openf1_drivers(*, engine: Engine | None = None) -> int:
+    """
+    Fetch driver/team metadata for every OpenF1 Race session that has none
+    stored yet (idempotent, one request per session). This is the only
+    source of which team a driver raced for.
+
+    Returns:
+        Number of raw_drivers rows inserted.
+    """
+    if engine is None:
+        engine = get_engine()
+    init_db(engine)
+
+    with engine.connect() as conn:
+        session_keys = [
+            int(r[0]) for r in conn.execute(text(
+                "SELECT session_key FROM raw_sessions "
+                "WHERE source = 'openf1' AND session_type = 'Race' "
+                "AND session_key NOT IN (SELECT session_key FROM raw_drivers) "
+                "ORDER BY session_key"
+            ))
+        ]
+
+    async def _fetch(session_key: int):
+        async with OpenF1Client() as client:
+            return await client.drivers(session_key)
+
+    inserted = 0
+    for sk in session_keys:
+        try:
+            drivers = asyncio.run(_fetch(sk))
+        except Exception:
+            logger.exception("Failed to load OpenF1 drivers for session %d", sk)
+            continue
+        inserted += bulk_insert_rows(engine, "raw_drivers", [
+            {
+                "session_key": sk,
+                "driver_number": _safe_int(d.get("driver_number")),
+                "full_name": d.get("full_name"),
+                "name_acronym": d.get("name_acronym"),
+                "team_name": d.get("team_name"),
+                "team_colour": d.get("team_colour"),
+            }
+            for d in drivers
+            if _safe_int(d.get("driver_number")) is not None
+        ])
+        time.sleep(60 / 28)  # stay under OpenF1's 30 requests/minute
+    return inserted

@@ -310,6 +310,7 @@ class FeaturesPrerace(Base):
     driver_seasons_in_f1 = Column(Integer)         # ≥ 1 for any driver in raw_sessions
     finish_position = Column(Integer)              # target label; NULL for non-race sessions
     team_name = Column(String)                     # constructor name
+    recent_quali_delta = Column(Float)             # mean qualifying gap to pole, previous 5 races; NULL if none
 
     __table_args__ = (
         PrimaryKeyConstraint("session_key", "driver_number", name="pk_features_prerace"),

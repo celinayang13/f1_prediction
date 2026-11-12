@@ -36,6 +36,7 @@ from f1_prediction.features.prerace import (
     compute_grid_position,
     compute_practice_pace,
     compute_qualifying_delta,
+    compute_recent_quali_delta,
 )
 
 logger = logging.getLogger(__name__)
@@ -302,6 +303,9 @@ def build_features_for_session(
                     "grid_position": compute_grid_position(session_key, dn, conn),
                     "driver_seasons_in_f1": compute_driver_seasons(dn, int(year), conn),
                     "finish_position": compute_finish_position(session_key, dn, conn),
+                    "recent_quali_delta": compute_recent_quali_delta(
+                        dn, int(year), int(round_number), conn
+                    ),
                     "team_name": team_name,
                 }
                 rows.append(row)
@@ -366,6 +370,12 @@ def build_all_features(
     """
     if engine is None:
         engine = get_engine()
+
+    # features_prerace predates recent_quali_delta: add the column to an existing database
+    with engine.begin() as conn:
+        columns = [r[1] for r in conn.execute(text("PRAGMA table_info(features_prerace)"))]
+        if columns and "recent_quali_delta" not in columns:
+            conn.execute(text("ALTER TABLE features_prerace ADD COLUMN recent_quali_delta FLOAT"))
 
     sessions = _get_race_sessions(engine, only_years=only_years)
     logger.info("build_all_features: found %d race sessions to process", len(sessions))

@@ -1,12 +1,14 @@
 """
-Evaluate the win probabilities the app actually serves (Phase C).
+Evaluate the win probabilities the app serves (Phase C).
 
-Scores the saved model artifacts on every season they were NOT trained on
-(read from <artifact>.meta.json), using the final per-field distribution —
-not the raw binary classifier output — and compares it with simple
-baselines on the same races and drivers.
+Walk-forward: every season after the first is predicted by models fitted
+only on earlier seasons, using the same training function as the served
+artifact. The served field-choice model is compared with simple baselines
+and an XGBoost challenger on the same races and drivers, and each model is
+also scored on the races it was fitted on — a large seen/unseen gap means
+it is memorising rather than generalising.
 
-2024 and 2025 have already informed model choices, so results on them are
+These seasons have already informed model choices, so the results are
 development backtests, not untouched tests.
 
 Metrics (per field = one race pre-race, one race lap in-race):
@@ -19,12 +21,12 @@ equally regardless of length. Intervals are 95% bootstrap intervals from
 resampling whole races.
 
 Usage:
-    python scripts/evaluate.py                # prints a table, writes data/eval/eval-<timestamp>.json
+    python scripts/evaluate.py                # prints tables, writes data/eval/eval-<timestamp>.json
     python scripts/evaluate.py --output-dir /tmp/eval
 
 Exit codes:
     0: success
-    1: missing artifact/metadata or no unseen seasons to evaluate
+    1: fewer than two seasons of data
 """
 from __future__ import annotations
 
@@ -38,21 +40,25 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import joblib  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+import xgboost as xgb  # noqa: E402
 
 from f1_prediction.db.engine import get_engine  # noqa: E402
-from f1_prediction.inference.features import (  # noqa: E402
-    PRERACE_FEATURE_COLS,
-    build_inrace_feature_matrix,
-    normalize_probs,
+from f1_prediction.inference.features import normalize_probs  # noqa: E402
+from f1_prediction.inference.field_choice import (  # noqa: E402
+    _field_index,
+    _field_softmax,
+    inrace_inputs,
+    prerace_inputs,
 )
 from train import (  # noqa: E402
     code_revision,
     dataset_hash,
     load_inrace_training,
     load_prerace_training,
+    train_inrace_model,
+    train_prerace_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,6 +66,8 @@ logger = logging.getLogger(__name__)
 METRICS = ["brier", "nll", "top1"]
 _NLL_FLOOR = 1e-6  # a 0% winner would otherwise score infinity; such fields are counted
 _STAGES = ["early", "middle", "late"]
+# inputs where a larger value can only hurt a driver's chances (for the tree challenger)
+_NEVER_HELPS = {"log_grid", "recent_quali_delta", "log_pos", "log_gap", "log_gap_per_lap_left"}
 
 
 # ---------------------------------------------------------------------------
@@ -107,13 +115,8 @@ def summarize(per_race: pd.DataFrame, *, n_boot: int = 2000, seed: int = 0) -> d
     }
 
 
-def paired_difference(a: pd.DataFrame, b: pd.DataFrame, *, n_boot: int = 2000, seed: int = 0) -> dict:
-    """Mean of (a - b) per race with a 95% race-bootstrap interval. Negative brier/nll favours a."""
-    return summarize(a[METRICS] - b[METRICS], n_boot=n_boot, seed=seed)
-
-
 # ---------------------------------------------------------------------------
-# Candidates
+# Candidates: each takes (train rows, rows to score) and returns a score per row
 # ---------------------------------------------------------------------------
 
 def frequency_baseline(train: pd.DataFrame, test: pd.DataFrame, cols: list[str]) -> pd.Series:
@@ -129,9 +132,45 @@ def frequency_baseline(train: pd.DataFrame, test: pd.DataFrame, cols: list[str])
     return pd.Series(merged.fillna(rate["rate"].min()).to_numpy(), index=test.index)
 
 
-def odds(p: np.ndarray) -> np.ndarray:
-    """p / (1 - p): normalizing these is a softmax over the classifier's logits."""
-    return p / (1 - np.clip(p, 0, 1 - 1e-9))
+def _uniform(train: pd.DataFrame, test: pd.DataFrame) -> pd.Series:
+    return pd.Series(1.0, index=test.index)
+
+
+def _served(train_fn):
+    """The served field-choice model, refitted on the given training seasons."""
+    def run(train, test):
+        model = train_fn(train, sorted(train["year"].unique()))
+        return pd.Series(model.scores(test), index=test.index)
+    return run
+
+
+def _xgboost_challenger(inputs_fn, keys: list[str]):
+    """
+    Gradient-boosted trees on the served model's inputs, trained on the same
+    objective (softmax over the field), kept shallow, and constrained so a
+    worse grid slot / position / gap can never raise a driver's chances.
+    """
+    def run(train, test):
+        X_all = inputs_fn(train)  # field-relative inputs need the complete fields
+        keep = train.groupby(keys)["is_winner"].transform("sum") == 1
+        order = train[keep].sort_values(keys).index
+        X, fit_rows = X_all.loc[order], train.loc[order]
+        y = fit_rows["is_winner"].to_numpy(float)
+        starts, field_of_row = _field_index(fit_rows.groupby(keys, sort=False).ngroup().to_numpy())
+
+        def objective(pred, _dtrain):
+            p = _field_softmax(pred, starts, field_of_row)
+            return p - y, np.maximum(p * (1 - p), 1e-6)
+
+        params = {
+            "max_depth": 2, "eta": 0.05, "subsample": 0.8, "colsample_bytree": 0.8,
+            "base_score": 0.0, "seed": 0, "verbosity": 0,
+            "monotone_constraints": "(" + ",".join("-1" if c in _NEVER_HELPS else "0" for c in X.columns) + ")",
+        }
+        booster = xgb.train(params, xgb.DMatrix(X.to_numpy(float), label=y), num_boost_round=100, obj=objective)
+        margin = booster.predict(xgb.DMatrix(inputs_fn(test).to_numpy(float)), output_margin=True)
+        return pd.Series(np.exp(np.clip(margin, -50, 50)), index=test.index)
+    return run
 
 
 def _stage(df: pd.DataFrame) -> pd.Series:
@@ -139,53 +178,68 @@ def _stage(df: pd.DataFrame) -> pd.Series:
     return pd.cut(progress, [0, 1 / 3, 2 / 3, 1.0], labels=_STAGES, include_lowest=True).astype(str)
 
 
-def _load_artifact(path: Path) -> tuple[object, dict]:
-    meta_path = path.with_suffix(".meta.json")
-    if not path.exists() or not meta_path.exists():
-        raise FileNotFoundError(
-            f"{path} or {meta_path.name} is missing — run scripts/train.py to produce both."
-        )
-    return joblib.load(path), json.loads(meta_path.read_text())
-
-
 # ---------------------------------------------------------------------------
-# Evaluation
+# Walk-forward evaluation
 # ---------------------------------------------------------------------------
 
-def _evaluate(df, raw, keys, baselines: dict, reference: str, train_years: list[int]) -> dict:
-    """Score the model and baselines on each unseen season; returns the results dict."""
-    eval_years = sorted(int(y) for y in df["year"].unique() if y > max(train_years))
-    if not eval_years:
-        raise ValueError(f"No seasons after training years {train_years} to evaluate on.")
+def walk_forward(df: pd.DataFrame, keys: list[str], candidates: dict, reference: str, learned: list[str]) -> dict:
+    """
+    Predict each season after the first from all earlier seasons.
 
-    train = df[df["year"].isin(train_years)]
-    results = {}
-    for label, years in [*[(str(y), [y]) for y in eval_years], ("all", eval_years)]:
-        test = df[df["year"].isin(years)]
-        candidates = {
-            "uniform": pd.Series(1.0, index=test.index),
-            **{name: frequency_baseline(train, test, cols) for name, cols in baselines.items()},
-            "model": pd.Series(raw[test.index], index=test.index),
-            "model_odds_normalized": pd.Series(odds(raw[test.index]), index=test.index),
-        }
-        fields = {name: score_fields(test, p, keys) for name, p in candidates.items()}
+    Args:
+        df: Training frame with 'year', 'session_key', 'is_winner' (+ 'stage' for in-race).
+        keys: Columns identifying a field.
+        candidates: name -> callable(train_df, test_df) returning a score per test row.
+        reference: The baseline candidate the served model is compared against.
+        learned: Candidates to also score on the races they were fitted on.
+
+    Returns:
+        Results dict: one block per test season plus 'all'.
+    """
+    years = sorted(int(y) for y in df["year"].unique())
+    if len(years) < 2:
+        raise ValueError(f"Need at least two seasons to evaluate, found {years}.")
+
+    unseen = {name: [] for name in candidates}   # per-field scores on the predicted season
+    seen = {name: [] for name in learned}        # per-field scores on the seasons fitted on
+    for year in years[1:]:
+        train, test = df[df["year"] < year], df[df["year"] == year]
+        for name, candidate in candidates.items():
+            unseen[name].append(score_fields(test, candidate(train, test), keys).assign(year=year))
+            if name in seen:
+                seen[name].append(score_fields(train, candidate(train, train), keys).assign(year=year))
+
+    unseen = {name: pd.concat(parts) for name, parts in unseen.items()}
+    seen = {name: pd.concat(parts) for name, parts in seen.items()}
+    stage_of_field = df.groupby(keys)["stage"].first() if "stage" in df.columns else None
+
+    def per_race(fields: pd.DataFrame) -> pd.DataFrame:
         # every race counts once, however many laps it has
-        per_race = {name: f.groupby("session_key").mean() for name, f in fields.items()}
+        return fields.groupby("session_key")[METRICS].mean()
 
+    results = {}
+    for label, block_years in [*[(str(y), [y]) for y in years[1:]], ("all", years[1:])]:
+        pick = {name: f[f["year"].isin(block_years)] for name, f in unseen.items()}
+        races = {name: per_race(f) for name, f in pick.items()}
         block = {
-            "n_races": int(len(per_race["model"])),
-            "n_fields": int(len(fields["model"])),
-            "n_fields_dropped_no_single_winner": int(test.groupby(keys).ngroups - len(fields["model"])),
-            "fields_with_zero_probability_winner": int(fields["model"]["zero_winner"].sum()),
-            "candidates": {name: summarize(r) for name, r in per_race.items()},
-            f"model_minus_{reference}": paired_difference(per_race["model"], per_race[reference]),
+            "n_races": int(len(races["served"])),
+            "n_fields": int(len(pick["served"])),
+            "fields_with_zero_probability_winner": int(pick["served"]["zero_winner"].sum()),
+            "candidates": {name: summarize(r) for name, r in races.items()},
+            f"served_minus_{reference}": summarize(races["served"] - races[reference]),
+            "seen_vs_unseen": {
+                name: {
+                    "seen": summarize(per_race(seen[name][seen[name]["year"].isin(block_years)])),
+                    "unseen": summarize(races[name]),
+                }
+                for name in learned
+            },
         }
-        if "stage" in test.columns:
-            stage_of_field = test.groupby(keys)["stage"].first()
+        if stage_of_field is not None:
             block["by_stage"] = {
                 stage: {
-                    name: summarize(f[stage_of_field.reindex(f.index) == stage].groupby("session_key").mean())
-                    for name, f in fields.items() if name in ("model", reference)
+                    name: summarize(per_race(f[(stage_of_field.reindex(f.index) == stage).to_numpy()]))
+                    for name, f in pick.items() if name in ("served", reference)
                 }
                 for stage in _STAGES
             }
@@ -193,58 +247,62 @@ def _evaluate(df, raw, keys, baselines: dict, reference: str, train_years: list[
     return results
 
 
-def evaluate_all(engine, models_dir: Path) -> dict:
-    """Evaluate both saved models; returns the full machine-readable report."""
+def evaluate_all(engine) -> dict:
+    """Walk-forward evaluation of both prediction kinds; returns the machine-readable report."""
     report = {
         "evaluated_at": datetime.now(timezone.utc).isoformat(),
-        "kind": "development backtest (2024 and 2025 have informed model selection)",
+        "kind": "development backtest, walk-forward by season (these seasons have informed model selection)",
         "code_revision": code_revision(),
         "brier_convention": "sum over drivers of (p_i - y_i)^2 per field, averaged per race then over races",
         "interval": "95% percentile bootstrap over whole races, 2000 resamples, seed 0",
     }
 
-    model, meta = _load_artifact(models_dir / "prerace_model.joblib")
     df = load_prerace_training(engine, max_year=9999).reset_index(drop=True)
-    raw = model.predict_proba(df[PRERACE_FEATURE_COLS].values)[:, 1]
+    keys = ["session_key"]
     report["prerace"] = {
-        "artifact": meta,
         "eval_dataset_hash": dataset_hash(df),
-        "results": _evaluate(
-            df, raw, ["session_key"],
-            {"grid": ["grid_position"], "championship": ["championship_position"]},
-            "grid", meta["train_years"],
-        ),
+        "reference": "grid",
+        "results": walk_forward(df, keys, {
+            "uniform": _uniform,
+            "grid": lambda tr, te: frequency_baseline(tr, te, ["grid_position"]),
+            "championship": lambda tr, te: frequency_baseline(tr, te, ["championship_position"]),
+            "served": _served(train_prerace_model),
+            "xgboost_challenger": _xgboost_challenger(prerace_inputs, keys),
+        }, "grid", ["served", "xgboost_challenger"]),
     }
 
-    model, meta = _load_artifact(models_dir / "inrace_model.joblib")
     df = load_inrace_training(engine, max_year=9999).reset_index(drop=True)
     df["stage"] = _stage(df)
-    raw = model.predict_proba(build_inrace_feature_matrix(df).values)[:, 1]
+    keys = ["session_key", "lap_number"]
     report["inrace"] = {
-        "artifact": meta,
         "eval_dataset_hash": dataset_hash(df),
-        "results": _evaluate(
-            df, raw, ["session_key", "lap_number"],
-            {"position": ["position", "stage"]},
-            "position", meta["train_years"],
-        ),
+        "reference": "position",
+        "results": walk_forward(df, keys, {
+            "uniform": _uniform,
+            "position": lambda tr, te: frequency_baseline(tr, te, ["position", "stage"]),
+            "served": _served(train_inrace_model),
+            "xgboost_challenger": _xgboost_challenger(inrace_inputs, keys),
+        }, "position", ["served", "xgboost_challenger"]),
     }
     return report
 
 
 def _print_report(report: dict) -> None:
+    def cells(s):
+        return "".join(f"{s[m]['mean']:>8.3f} [{s[m]['ci95'][0]:>5.2f},{s[m]['ci95'][1]:>5.2f}]" for m in METRICS)
+
     for kind in ("prerace", "inrace"):
-        reference = "grid" if kind == "prerace" else "position"
+        reference = report[kind]["reference"]
         for label, block in report[kind]["results"].items():
             print(f"\n{kind} {label}: {block['n_races']} races, {block['n_fields']} fields, "
                   f"{block['fields_with_zero_probability_winner']} with a 0% winner")
             print(f"  {'candidate':<24}{'brier':>22}{'nll':>22}{'top1':>22}")
-            rows = {**block["candidates"], f"model - {reference}": block[f"model_minus_{reference}"]}
-            for name, s in rows.items():
-                cells = "".join(
-                    f"{s[m]['mean']:>8.3f} [{s[m]['ci95'][0]:>5.2f},{s[m]['ci95'][1]:>5.2f}]" for m in METRICS
-                )
-                print(f"  {name:<24}{cells}")
+            for name, s in block["candidates"].items():
+                print(f"  {name:<24}{cells(s)}")
+            print(f"  {'served - ' + reference:<24}{cells(block[f'served_minus_{reference}'])}")
+            for name, s in block["seen_vs_unseen"].items():
+                print(f"  overfit check {name}: seen nll={s['seen']['nll']['mean']:.3f} top1={s['seen']['top1']['mean']:.3f}"
+                      f" | unseen nll={s['unseen']['nll']['mean']:.3f} top1={s['unseen']['top1']['mean']:.3f}")
             for stage, cands in block.get("by_stage", {}).items():
                 print(f"  {stage:<7}" + "  ".join(
                     f"{name} nll={s['nll']['mean']:.3f} top1={s['top1']['mean']:.3f}" for name, s in cands.items()
@@ -253,18 +311,17 @@ def _print_report(report: dict) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Evaluate served win probabilities against simple baselines on unseen seasons.",
+        description="Walk-forward evaluation of served win probabilities against baselines and a challenger.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--models-dir", type=Path, default=Path("data/models"), metavar="DIR")
     parser.add_argument("--output-dir", type=Path, default=Path("data/eval"), metavar="DIR",
                         help="Directory for the timestamped JSON report (never overwritten).")
     args = parser.parse_args()
     logging.basicConfig(level=logging.WARNING)
 
     try:
-        report = evaluate_all(get_engine(), args.models_dir)
-    except (FileNotFoundError, ValueError) as exc:
+        report = evaluate_all(get_engine())
+    except ValueError as exc:
         print(f"evaluate: {exc}", file=sys.stderr)
         sys.exit(1)
 

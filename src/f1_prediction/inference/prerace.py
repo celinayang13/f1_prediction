@@ -65,7 +65,8 @@ def compute_and_store_prerace(
             text(
                 "SELECT session_key, driver_number, qualifying_delta_to_pole, "
                 "practice_pace_fp2, practice_pace_fp3, circuit_win_rate, "
-                "championship_position, grid_position, driver_seasons_in_f1 "
+                "championship_position, grid_position, driver_seasons_in_f1, "
+                "recent_quali_delta "
                 "FROM features_prerace WHERE session_key = :sk"
             ),
             conn,
@@ -82,7 +83,7 @@ def compute_and_store_prerace(
     # Reindex to the exact training-time column set/order (Pitfall 5) before
     # handing off to predict_normalized, which itself selects feature_cols
     # by name — this reindex is a defensive, explicit contract check.
-    df = df[["session_key", "driver_number", *PRERACE_FEATURE_COLS]]
+    df = df[["session_key", "driver_number", *PRERACE_FEATURE_COLS, "recent_quali_delta"]]
 
     result = predict_normalized(model, df, PRERACE_FEATURE_COLS)
 

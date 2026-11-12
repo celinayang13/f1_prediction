@@ -1,21 +1,17 @@
 """
 Standalone model training CLI (D-09).
 
-Trains a calibrated XGBoost classifier on historical F1 race features
-and serializes the artifact for use in Phase 3 inference.
+Fits the served field-choice win model (inference/field_choice.py) on every
+season in the database and writes the artifact plus a .meta.json describing
+what it was trained on. Out-of-sample quality is measured separately by
+scripts/evaluate.py, which refits the same model season by season.
 
 Usage:
-    # Train the pre-race model (qualifying + practice features):
     python scripts/train.py --model prerace
-
-    # Train with a different held-out validation year:
-    python scripts/train.py --model prerace --val-year 2023
-
-    # Write artifact to a custom directory (useful for tests):
-    python scripts/train.py --model prerace --output-dir /tmp/models
-
-    # In-race model (wired in Plan 02-03):
     python scripts/train.py --model inrace
+
+    # Leave later seasons out, or write somewhere else (useful for tests):
+    python scripts/train.py --model prerace --max-year 2024 --output-dir /tmp/models
 
 Exit codes:
     0: success
@@ -38,11 +34,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import joblib  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+import scipy  # noqa: E402
 import sklearn  # noqa: E402
-import xgboost as xgb  # noqa: E402
-from sklearn.calibration import CalibratedClassifierCV  # noqa: E402
-from sklearn.model_selection import GroupKFold  # noqa: E402
-from sklearn.metrics import brier_score_loss, log_loss  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
 from f1_prediction.db.engine import get_engine  # noqa: E402
@@ -55,6 +48,7 @@ from f1_prediction.inference.features import (  # noqa: E402
     predict_inrace_normalized,
     predict_normalized,
 )
+from f1_prediction.inference.field_choice import FieldChoiceModel  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +90,7 @@ def load_prerace_training(engine, max_year: int = 2024) -> pd.DataFrame:
                     fp.championship_position,
                     fp.grid_position,
                     fp.driver_seasons_in_f1,
+                    fp.recent_quali_delta,
                     CASE
                         WHEN fp.finish_position = 1
                          AND (
@@ -178,6 +173,8 @@ def load_inrace_training(engine, max_year: int = 2024) -> pd.DataFrame:
                     fi.interval_behind,
                     fi.pit_stop_delta,
                     fi.laps_remaining,
+                    fp.grid_position,
+                    fp.recent_quali_delta,
                     CASE
                         WHEN fp.finish_position = 1
                          AND (
@@ -222,151 +219,40 @@ def load_inrace_training(engine, max_year: int = 2024) -> pd.DataFrame:
 # Model training
 # ---------------------------------------------------------------------------
 
-def _race_grouped_folds(train_df: pd.DataFrame, n_splits: int) -> list:
+def train_prerace_model(df: pd.DataFrame, train_years: list[int], cv: int = 4) -> FieldChoiceModel:
     """
-    Calibration folds that keep each race whole.
-
-    Row-level folds would put drivers (or laps) of the same race on both
-    sides of a fold, so the calibrator would be fitted on races the base
-    model had already seen.
-    """
-    groups = train_df["session_key"].values
-    return list(GroupKFold(n_splits=n_splits).split(groups, groups=groups))
-
-
-def train_prerace_model(
-    df: pd.DataFrame,
-    train_years: list[int],
-    cv: int = 5,
-) -> CalibratedClassifierCV:
-    """
-    Train a calibrated XGBoost pre-race win probability classifier.
-
-    Uses scale_pos_weight to handle extreme class imbalance (1 winner per
-    ~20 drivers). CalibratedClassifierCV with sigmoid (Platt) scaling converts
-    raw XGBoost scores to calibrated probabilities.
-
-    Calibration folds are grouped by race (see _race_grouped_folds).
-    CRITICAL: scale_pos_weight (XGBoost), NOT is_unbalance (LightGBM-only).
+    Fit the pre-race field-choice model (see inference/field_choice.py).
 
     Args:
         df: DataFrame from load_prerace_training.
-        train_years: List of years to include in the training set.
-        cv: Number of cross-validation folds for CalibratedClassifierCV.
-            Default is 5 (production setting). Use cv=2 for test fixtures
-            with fewer than 5 examples per class.
+        train_years: Seasons to train on.
+        cv: Race-grouped folds used to choose the L2 penalty.
 
     Returns:
-        Fitted CalibratedClassifierCV wrapping an XGBClassifier.
+        Fitted FieldChoiceModel('prerace').
 
     Raises:
-        ValueError: If no winner rows found in the training set.
+        ValueError: If the training seasons contain no race with exactly one winner.
     """
-    train_mask = df["year"].isin(train_years)
-    X_train = df.loc[train_mask, PRERACE_FEATURE_COLS].values
-    y_train = df.loc[train_mask, "is_winner"].values
-
-    n_total = len(y_train)
-    n_pos = int(y_train.sum())
-    if n_pos == 0:
-        raise ValueError(
-            f"No winner rows found in training years {train_years}. "
-            "Check that features_prerace is populated and is_winner derivation is correct."
-        )
-
-    scale_pos_weight = float((n_total - n_pos) / n_pos)
-    logger.info(
-        "Training pre-race model: n_train=%d, n_winners=%d, scale_pos_weight=%.2f",
-        n_total, n_pos, scale_pos_weight,
-    )
-
-    base_clf = xgb.XGBClassifier(
-        n_estimators=200,
-        learning_rate=0.05,
-        max_depth=3,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        scale_pos_weight=scale_pos_weight,
-        objective="binary:logistic",
-        eval_metric="logloss",
-        verbosity=0,
-    )
-    model = CalibratedClassifierCV(
-        base_clf, cv=_race_grouped_folds(df.loc[train_mask], cv), method="sigmoid"
-    )
-    model.fit(X_train, y_train)
-    return model
+    return FieldChoiceModel("prerace").fit(df[df["year"].isin(train_years)], cv=cv)
 
 
-def train_inrace_model(
-    df: pd.DataFrame,
-    train_years: list[int],
-    cv: int = 5,
-) -> CalibratedClassifierCV:
+def train_inrace_model(df: pd.DataFrame, train_years: list[int], cv: int = 4) -> FieldChoiceModel:
     """
-    Train a calibrated XGBoost in-race win probability classifier.
-
-    Mirrors train_prerace_model exactly, but uses build_inrace_feature_matrix
-    to construct X from the 14-column in-race feature set (9 numeric + 5 tyre
-    one-hot columns).
-
-    The in-race class imbalance is even more extreme than pre-race: there is
-    only 1 winning driver per race but ~N_laps × 20 rows. scale_pos_weight is
-    computed from the actual in-race winner rate and will be much higher than
-    the pre-race ~19.
-
-    Per D-09 OVERRIDE: scale_pos_weight (XGBoost) is used, not is_unbalance
-    (LightGBM-only, silently ignored by XGBoost — Pitfall 7 / RESEARCH.md).
-
-    Calibration folds are grouped by race (see _race_grouped_folds).
-    CRITICAL: .dropna() is NEVER called — pit_stop_delta is 96% NULL (D-05).
+    Fit the in-race field-choice model: one field per (race, lap).
 
     Args:
         df: DataFrame from load_inrace_training.
-        train_years: List of years to include in the training set.
-        cv: Number of cross-validation folds for CalibratedClassifierCV.
-            Default is 5 (production). Use cv=2 for test fixtures.
+        train_years: Seasons to train on.
+        cv: Race-grouped folds used to choose the L2 penalty.
 
     Returns:
-        Fitted CalibratedClassifierCV wrapping an XGBClassifier.
+        Fitted FieldChoiceModel('inrace').
 
     Raises:
-        ValueError: If no winner rows found in the training set.
+        ValueError: If the training seasons contain no lap with exactly one winner.
     """
-    train_mask = df["year"].isin(train_years)
-    X_train = build_inrace_feature_matrix(df.loc[train_mask]).values
-    y_train = df.loc[train_mask, "is_winner"].values
-
-    n_total = len(y_train)
-    n_pos = int(y_train.sum())
-    if n_pos == 0:
-        raise ValueError(
-            f"No winner rows found in training years {train_years}. "
-            "Check that features_inrace is populated and is_winner derivation is correct."
-        )
-
-    scale_pos_weight = float((n_total - n_pos) / n_pos)
-    logger.info(
-        "Training in-race model: n_train=%d, n_winners=%d, scale_pos_weight=%.2f",
-        n_total, n_pos, scale_pos_weight,
-    )
-
-    base_clf = xgb.XGBClassifier(
-        n_estimators=200,
-        learning_rate=0.05,
-        max_depth=3,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        scale_pos_weight=scale_pos_weight,
-        objective="binary:logistic",
-        eval_metric="logloss",
-        verbosity=0,
-    )
-    model = CalibratedClassifierCV(
-        base_clf, cv=_race_grouped_folds(df.loc[train_mask], cv), method="sigmoid"
-    )
-    model.fit(X_train, y_train)
-    return model
+    return FieldChoiceModel("inrace").fit(df[df["year"].isin(train_years)], cv=cv)
 
 
 # ---------------------------------------------------------------------------
@@ -380,7 +266,7 @@ def save_model(model, path: Path) -> None:
     Creates parent directories as needed.
 
     Args:
-        model: Fitted scikit-learn estimator (e.g. CalibratedClassifierCV).
+        model: Fitted model (e.g. FieldChoiceModel).
         path: Destination file path.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -406,32 +292,31 @@ def code_revision() -> str:
         return "unknown"
 
 
-def save_metadata(model, artifact_path: Path, train_df: pd.DataFrame, feature_cols: list[str], metrics: dict) -> None:
+def save_metadata(model: FieldChoiceModel, artifact_path: Path, train_df: pd.DataFrame) -> dict:
     """
     Write <artifact>.meta.json next to a model artifact: what it was trained
-    on and with what, so served probabilities can be traced and evaluation
-    can refuse to score races the model has seen.
+    on and the fitted coefficients, so served probabilities can be traced.
     """
     meta = {
-        **metrics,
+        "model": model.kind,
+        "algorithm": "field-choice (conditional logit)",
+        "train_years": sorted(int(y) for y in train_df["year"].unique()),
+        "n_train_races": int(train_df["session_key"].nunique()),
+        "n_train_fields": model.n_fields_,
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "artifact_sha256": hashlib.sha256(artifact_path.read_bytes()).hexdigest()[:16],
         "train_dataset_hash": dataset_hash(train_df),
-        "n_train_races": int(train_df["session_key"].nunique()),
-        "feature_cols": feature_cols,
-        "calibration": {"method": model.method, "folds": "GroupKFold by session_key"},
-        "normalization": "p / sum(p) within field",
-        "hyperparameters": {
-            k: v for k, v in model.estimator.get_params().items()
-            if v is not None and isinstance(v, (int, float, str, bool))
-        },
+        "l2_penalty": model.l2_,
+        "coefficients_on_standardized_inputs": model.coefficients(),
+        "normalization": "softmax over the field (scores / sum of scores)",
         "library_versions": {
-            "xgboost": xgb.__version__, "scikit-learn": sklearn.__version__,
+            "scipy": scipy.__version__, "scikit-learn": sklearn.__version__,
             "numpy": np.__version__, "pandas": pd.__version__, "joblib": joblib.__version__,
         },
         "code_revision": code_revision(),
     }
     artifact_path.with_suffix(".meta.json").write_text(json.dumps(meta, indent=2) + "\n")
+    return meta
 
 
 # ---------------------------------------------------------------------------
@@ -439,11 +324,12 @@ def save_metadata(model, artifact_path: Path, train_df: pd.DataFrame, feature_co
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    """CLI entrypoint for the standalone model trainer."""
+    """CLI entrypoint: train one served model on every season up to --max-year."""
     parser = argparse.ArgumentParser(
         description=(
-            "Train a calibrated XGBoost win probability model on historical F1 features. "
-            "Produces a serialized CalibratedClassifierCV artifact in --output-dir."
+            "Train a field-choice win probability model on historical F1 features. "
+            "Writes <model>_model.joblib and <model>_model.meta.json to --output-dir. "
+            "Out-of-sample quality is measured by scripts/evaluate.py, not here."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
@@ -451,7 +337,7 @@ def main() -> None:
         "--model",
         choices=["prerace", "inrace"],
         required=True,
-        help="Which model to train: prerace (qualifying/practice features) or inrace (lap-by-lap features).",
+        help="Which model to train: prerace (grid and recent qualifying pace) or inrace (lap-by-lap race state).",
     )
     parser.add_argument(
         "--output-dir",
@@ -461,13 +347,12 @@ def main() -> None:
         help="Directory to write the serialized model artifact.",
     )
     parser.add_argument(
-        "--val-year",
+        "--max-year",
         type=int,
-        default=2024,
+        default=9999,
         metavar="YEAR",
-        help="Held-out validation year (excluded from training). ROADMAP success criterion is 2024.",
+        help="Train on seasons up to and including this year (default: every season in the database).",
     )
-
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -477,140 +362,34 @@ def main() -> None:
     )
 
     try:
-        if args.model == "prerace":
-            _train_prerace(args)
-        elif args.model == "inrace":
-            _train_inrace(args)
+        load, train = (
+            (load_prerace_training, train_prerace_model) if args.model == "prerace"
+            else (load_inrace_training, train_inrace_model)
+        )
+        df = load(get_engine(), max_year=args.max_year)
+        train_years = sorted(int(y) for y in df["year"].unique())
+        logger.info("Training %s model on seasons %s (%d rows)", args.model, train_years, len(df))
+        model = train(df, train_years)
+
+        # Every field's probabilities must sum to 1
+        keys = ["session_key"] if args.model == "prerace" else ["session_key", "lap_number"]
+        result = (
+            predict_normalized(model, df, PRERACE_FEATURE_COLS) if args.model == "prerace"
+            else predict_inrace_normalized(model, df)
+        )
+        sums = result.groupby(keys)["win_prob"].sum()
+        assert ((sums - 1.0).abs() < 0.001).all(), (
+            f"Sum-to-1 assertion failed for fields: {sums[(sums - 1.0).abs() >= 0.001].head(5).to_dict()}"
+        )
+
+        artifact_path = args.output_dir / f"{args.model}_model.joblib"
+        save_model(model, artifact_path)
+        print(json.dumps(save_metadata(model, artifact_path, df)))
+        logger.info("Saved %s model to %s", args.model, artifact_path)
         sys.exit(0)
     except Exception as exc:
         logger.error("Training failed: %s", exc, exc_info=True)
         sys.exit(1)
-
-
-def _train_prerace(args) -> None:
-    """Execute the pre-race training pipeline."""
-    logger.info("Loading prerace training data (max_year=%d)...", args.val_year)
-    df = load_prerace_training(get_engine(), max_year=args.val_year)
-
-    train_years = sorted(y for y in df["year"].unique() if y < args.val_year)
-    train_mask = df["year"].isin(train_years)
-    val_mask = df["year"] == args.val_year
-
-    logger.info(
-        "Data loaded: total_rows=%d, train_rows=%d, val_rows=%d, "
-        "train_years=%s, val_year=%d, n_winners_in_train=%d",
-        len(df),
-        int(train_mask.sum()),
-        int(val_mask.sum()),
-        train_years,
-        args.val_year,
-        int(df.loc[train_mask, "is_winner"].sum()),
-    )
-
-    model = train_prerace_model(df, train_years, cv=5)
-
-    # Validation on held-out year
-    val_df = df[val_mask].copy()
-    y_val = val_df["is_winner"].values
-    raw_proba_val = model.predict_proba(val_df[PRERACE_FEATURE_COLS].values)[:, 1]
-
-    brier = brier_score_loss(y_val, raw_proba_val)
-    ll = log_loss(y_val, raw_proba_val)
-
-    # Apply per-race normalization and assert sum-to-1
-    result = predict_normalized(model, val_df, PRERACE_FEATURE_COLS)
-    sums = result.groupby("session_key")["win_prob"].sum()
-    assert ((sums - 1.0).abs() < 0.001).all(), (
-        f"Per-race sum-to-1 assertion failed! Violating sessions: "
-        f"{sums[(sums - 1.0).abs() >= 0.001].to_dict()}"
-    )
-
-    metrics = {
-        "model": "prerace",
-        "train_years": [int(y) for y in train_years],
-        "val_year": int(args.val_year),
-        "n_train": int(train_mask.sum()),
-        "n_val": int(val_mask.sum()),
-        "brier_score": round(float(brier), 4),
-        "log_loss": round(float(ll), 4),
-        "n_val_races": int(sums.shape[0]),
-        "sum_to_one_min": float(sums.min()),
-        "sum_to_one_max": float(sums.max()),
-    }
-    print(json.dumps(metrics))
-
-    artifact_path = args.output_dir / "prerace_model.joblib"
-    save_model(model, artifact_path)
-    save_metadata(model, artifact_path, df[train_mask], PRERACE_FEATURE_COLS, metrics)
-    logger.info("Saved prerace model to %s", artifact_path)
-
-
-def _train_inrace(args) -> None:
-    """Execute the in-race training pipeline."""
-    logger.info("Loading inrace training data (max_year=%d)...", args.val_year)
-    df = load_inrace_training(get_engine(), max_year=args.val_year)
-
-    train_years = sorted(y for y in df["year"].unique() if y < args.val_year)
-    train_mask = df["year"].isin(train_years)
-    val_mask = df["year"] == args.val_year
-
-    logger.info(
-        "Data loaded: total_rows=%d, train_rows=%d, val_rows=%d, "
-        "train_years=%s, val_year=%d, n_winners_in_train=%d, "
-        "unique_val_races=%d",
-        len(df),
-        int(train_mask.sum()),
-        int(val_mask.sum()),
-        train_years,
-        args.val_year,
-        int(df.loc[train_mask, "is_winner"].sum()),
-        int(df.loc[val_mask, "session_key"].nunique()),
-    )
-
-    model = train_inrace_model(df, train_years, cv=5)
-
-    # Validation on held-out year
-    val_df = df[val_mask].copy()
-    y_val = val_df["is_winner"].values
-    X_val = build_inrace_feature_matrix(val_df).values
-    raw_proba_val = model.predict_proba(X_val)[:, 1]
-
-    brier = brier_score_loss(y_val, raw_proba_val)
-    ll = log_loss(y_val, raw_proba_val)
-
-    # Apply per-(session_key, lap_number) normalization and assert sum-to-1
-    result = predict_inrace_normalized(model, val_df)
-    sums = result.groupby(["session_key", "lap_number"])["win_prob"].sum()
-    assert ((sums - 1.0).abs() < 0.001).all(), (
-        f"Per-lap sum-to-1 assertion failed! Violating (session_key, lap_number) groups: "
-        f"{sums[(sums - 1.0).abs() >= 0.001].head(5).to_dict()}"
-    )
-
-    n_val_lap_groups = int(
-        val_df.groupby(["session_key", "lap_number"]).ngroups
-    )
-
-    metrics = {
-        "model": "inrace",
-        "train_years": [int(y) for y in train_years],
-        "val_year": int(args.val_year),
-        "n_train": int(train_mask.sum()),
-        "n_val": int(val_mask.sum()),
-        "brier_score": round(float(brier), 4),
-        "log_loss": round(float(ll), 4),
-        "n_val_lap_groups": n_val_lap_groups,
-        "sum_to_one_min": float(sums.min()),
-        "sum_to_one_max": float(sums.max()),
-    }
-    print(json.dumps(metrics))
-
-    artifact_path = args.output_dir / "inrace_model.joblib"
-    save_model(model, artifact_path)
-    save_metadata(
-        model, artifact_path, df[train_mask],
-        list(build_inrace_feature_matrix(df.head(1)).columns), metrics,
-    )
-    logger.info("Saved inrace model to %s", artifact_path)
 
 
 if __name__ == "__main__":

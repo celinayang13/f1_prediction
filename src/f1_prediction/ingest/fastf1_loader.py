@@ -25,6 +25,7 @@ import logging
 from pathlib import Path
 
 import fastf1
+from sqlalchemy import text
 
 from f1_prediction.db.engine import get_engine, init_db
 from f1_prediction.db.upsert import bulk_insert_rows, insert_or_skip_session
@@ -308,3 +309,63 @@ def load_year(
                 })
 
     return results
+
+
+def load_fastf1_results(*, engine=None) -> int:
+    """
+    Store the official classification and driver/team metadata for every
+    FastF1-sourced Race session that has none yet (idempotent).
+
+    Fills raw_session_results and raw_drivers — the same tables the OpenF1
+    loaders fill for 2023+ — so labels and team features do not depend on
+    which source a season came from.
+
+    Returns:
+        Number of raw_session_results rows inserted.
+    """
+    if engine is None:
+        engine = get_engine()
+    init_db(engine)
+    _ensure_cache_enabled()
+
+    with engine.connect() as conn:
+        sessions = conn.execute(text(
+            "SELECT session_key, year, round_number FROM raw_sessions "
+            "WHERE source = 'fastf1' AND session_type = 'Race' "
+            "AND session_key NOT IN (SELECT session_key FROM raw_session_results) "
+            "ORDER BY year, round_number"
+        )).fetchall()
+
+    inserted = 0
+    for session_key, year, round_number in sessions:
+        try:
+            sess = fastf1.get_session(int(year), int(round_number), "R")
+            sess.load(laps=False, telemetry=False, weather=False, messages=False)
+            results = sess.results
+        except Exception:
+            logger.exception("Failed to load FastF1 results for session %d", session_key)
+            continue
+
+        result_rows, driver_rows = [], []
+        for _, r in results.iterrows():
+            driver_number = int(r["DriverNumber"])
+            classified = str(r["ClassifiedPosition"])  # '1'..'20', or R/D/W/N/E/F
+            result_rows.append({
+                "session_key": int(session_key),
+                "driver_number": driver_number,
+                "position": int(classified) if classified.isdigit() else None,
+                "dnf": classified == "R",
+                "dns": classified in ("W", "F", "N"),
+                "dsq": classified in ("D", "E"),
+            })
+            driver_rows.append({
+                "session_key": int(session_key),
+                "driver_number": driver_number,
+                "full_name": r["FullName"],
+                "name_acronym": r["Abbreviation"],
+                "team_name": r["TeamName"],
+                "team_colour": r["TeamColor"],
+            })
+        inserted += bulk_insert_rows(engine, "raw_session_results", result_rows)
+        bulk_insert_rows(engine, "raw_drivers", driver_rows)
+    return inserted
