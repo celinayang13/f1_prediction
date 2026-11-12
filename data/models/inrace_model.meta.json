@@ -1,61 +1,42 @@
 {
   "model": "inrace",
+  "algorithm": "field-choice (conditional logit)",
   "train_years": [
     2022,
-    2023
+    2023,
+    2024,
+    2025
   ],
-  "val_year": 2024,
-  "n_train": 47769,
-  "n_val": 26574,
-  "brier_score": 0.0223,
-  "log_loss": 0.083,
-  "n_val_lap_groups": 1444,
-  "sum_to_one_min": 0.9999999999999996,
-  "sum_to_one_max": 1.0000000000000004,
-  "trained_at": "2026-11-12T15:54:41.902645+00:00",
-  "artifact_sha256": "b1bd362dc37100fe",
-  "train_dataset_hash": "373adc959b2f0f19",
-  "n_train_races": 44,
-  "feature_cols": [
-    "gap_to_leader",
-    "tyre_age_laps",
-    "pit_stop_count",
-    "position",
-    "interval_ahead",
-    "interval_behind",
-    "pit_stop_delta",
-    "lap_number",
-    "laps_remaining",
-    "tyre_HARD",
-    "tyre_INTERMEDIATE",
-    "tyre_MEDIUM",
-    "tyre_SOFT",
-    "tyre_WET"
-  ],
-  "calibration": {
-    "method": "sigmoid",
-    "folds": "GroupKFold by session_key"
+  "n_train_races": 92,
+  "n_train_fields": 5472,
+  "trained_at": "2026-11-12T17:31:46.151159+00:00",
+  "artifact_sha256": "2d95f674211e4625",
+  "train_dataset_hash": "fece1b92c54f3fba",
+  "l2_penalty": 0.001,
+  "coefficients_on_standardized_inputs": {
+    "log_pos": -0.8945,
+    "log_gap": -0.4856,
+    "log_pos_x_prog": -0.9439,
+    "log_gap_x_prog": 0.1067,
+    "is_leader": -0.0479,
+    "is_leader_x_prog": 0.0627,
+    "pit_rel": 0.5162,
+    "pit_rel_x_prog": -0.0126,
+    "log_gap_per_lap_left": -1.4871,
+    "log_grid": 0.0183,
+    "log_grid_x_prog": -0.4204,
+    "tyre_age_rel": -1.2029,
+    "tyre_age_rel_x_prog": 0.4477,
+    "recent_quali_delta": -1.8211,
+    "recent_quali_delta_x_prog": 0.4969
   },
-  "normalization": "p / sum(p) within field",
-  "hyperparameters": {
-    "objective": "binary:logistic",
-    "colsample_bytree": 0.8,
-    "enable_categorical": false,
-    "eval_metric": "logloss",
-    "learning_rate": 0.05,
-    "max_depth": 3,
-    "missing": NaN,
-    "n_estimators": 200,
-    "scale_pos_weight": 17.309313913376773,
-    "subsample": 0.8,
-    "verbosity": 0
-  },
+  "normalization": "softmax over the field (scores / sum of scores)",
   "library_versions": {
-    "xgboost": "3.2.0",
+    "scipy": "1.17.1",
     "scikit-learn": "1.9.1",
     "numpy": "2.4.3",
     "pandas": "2.3.3",
     "joblib": "1.6.0"
   },
-  "code_revision": "v1.0-12-gdeac15c-dirty"
+  "code_revision": "v1.0-14-gd6c8d4d-dirty"
 }

@@ -1,54 +1,29 @@
 {
   "model": "prerace",
+  "algorithm": "field-choice (conditional logit)",
   "train_years": [
     2022,
-    2023
+    2023,
+    2024,
+    2025
   ],
-  "val_year": 2024,
-  "n_train": 867,
-  "n_val": 478,
-  "brier_score": 0.0425,
-  "log_loss": 0.1608,
-  "n_val_races": 24,
-  "sum_to_one_min": 0.9999999999999997,
-  "sum_to_one_max": 1.0000000000000002,
-  "trained_at": "2026-11-12T15:54:37.766476+00:00",
-  "artifact_sha256": "7351f41b1655c237",
-  "train_dataset_hash": "20dd4f7e6d113e3c",
-  "n_train_races": 44,
-  "feature_cols": [
-    "qualifying_delta_to_pole",
-    "practice_pace_fp2",
-    "practice_pace_fp3",
-    "circuit_win_rate",
-    "championship_position",
-    "grid_position",
-    "driver_seasons_in_f1"
-  ],
-  "calibration": {
-    "method": "sigmoid",
-    "folds": "GroupKFold by session_key"
+  "n_train_races": 92,
+  "n_train_fields": 92,
+  "trained_at": "2026-11-12T17:31:43.955102+00:00",
+  "artifact_sha256": "2836b0f09ba829b9",
+  "train_dataset_hash": "10cb0d7ef54b06d1",
+  "l2_penalty": 0.001,
+  "coefficients_on_standardized_inputs": {
+    "log_grid": -1.0982,
+    "recent_quali_delta": -2.1511
   },
-  "normalization": "p / sum(p) within field",
-  "hyperparameters": {
-    "objective": "binary:logistic",
-    "colsample_bytree": 0.8,
-    "enable_categorical": false,
-    "eval_metric": "logloss",
-    "learning_rate": 0.05,
-    "max_depth": 3,
-    "missing": NaN,
-    "n_estimators": 200,
-    "scale_pos_weight": 18.704545454545453,
-    "subsample": 0.8,
-    "verbosity": 0
-  },
+  "normalization": "softmax over the field (scores / sum of scores)",
   "library_versions": {
-    "xgboost": "3.2.0",
+    "scipy": "1.17.1",
     "scikit-learn": "1.9.1",
     "numpy": "2.4.3",
     "pandas": "2.3.3",
     "joblib": "1.6.0"
   },
-  "code_revision": "v1.0-12-gdeac15c-dirty"
+  "code_revision": "v1.0-14-gd6c8d4d-dirty"
 }
