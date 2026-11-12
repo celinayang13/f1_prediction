@@ -5,17 +5,18 @@
     2022,
     2023,
     2024,
-    2025
+    2025,
+    2026
   ],
-  "n_train_races": 92,
-  "n_train_fields": 92,
-  "trained_at": "2026-11-12T17:31:43.955102+00:00",
-  "artifact_sha256": "2836b0f09ba829b9",
-  "train_dataset_hash": "10cb0d7ef54b06d1",
+  "n_train_races": 112,
+  "n_train_fields": 112,
+  "trained_at": "2026-11-12T21:51:11.831896+00:00",
+  "artifact_sha256": "b3db22490d9c7244",
+  "train_dataset_hash": "9930ba2750551130",
   "l2_penalty": 0.001,
   "coefficients_on_standardized_inputs": {
-    "log_grid": -1.0982,
-    "recent_quali_delta": -2.1511
+    "log_grid": -1.2021,
+    "recent_quali_delta": -2.1468
   },
   "normalization": "softmax over the field (scores / sum of scores)",
   "library_versions": {
@@ -25,5 +26,5 @@
     "pandas": "2.3.3",
     "joblib": "1.6.0"
   },
-  "code_revision": "v1.0-14-gd6c8d4d-dirty"
+  "code_revision": "v1.0-17-g519953f-dirty"
 }
