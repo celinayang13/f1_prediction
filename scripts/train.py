@@ -24,9 +24,12 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
+import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Ensure src/ is on the path for non-installed runs
@@ -35,8 +38,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import joblib  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+import sklearn  # noqa: E402
 import xgboost as xgb  # noqa: E402
 from sklearn.calibration import CalibratedClassifierCV  # noqa: E402
+from sklearn.model_selection import GroupKFold  # noqa: E402
 from sklearn.metrics import brier_score_loss, log_loss  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 
@@ -217,6 +222,18 @@ def load_inrace_training(engine, max_year: int = 2024) -> pd.DataFrame:
 # Model training
 # ---------------------------------------------------------------------------
 
+def _race_grouped_folds(train_df: pd.DataFrame, n_splits: int) -> list:
+    """
+    Calibration folds that keep each race whole.
+
+    Row-level folds would put drivers (or laps) of the same race on both
+    sides of a fold, so the calibrator would be fitted on races the base
+    model had already seen.
+    """
+    groups = train_df["session_key"].values
+    return list(GroupKFold(n_splits=n_splits).split(groups, groups=groups))
+
+
 def train_prerace_model(
     df: pd.DataFrame,
     train_years: list[int],
@@ -229,7 +246,7 @@ def train_prerace_model(
     ~20 drivers). CalibratedClassifierCV with sigmoid (Platt) scaling converts
     raw XGBoost scores to calibrated probabilities.
 
-    CRITICAL: cv=5 (integer default), NOT cv='prefit' (removed in scikit-learn 1.x).
+    Calibration folds are grouped by race (see _race_grouped_folds).
     CRITICAL: scale_pos_weight (XGBoost), NOT is_unbalance (LightGBM-only).
 
     Args:
@@ -274,7 +291,9 @@ def train_prerace_model(
         eval_metric="logloss",
         verbosity=0,
     )
-    model = CalibratedClassifierCV(base_clf, cv=cv, method="sigmoid")
+    model = CalibratedClassifierCV(
+        base_clf, cv=_race_grouped_folds(df.loc[train_mask], cv), method="sigmoid"
+    )
     model.fit(X_train, y_train)
     return model
 
@@ -299,7 +318,7 @@ def train_inrace_model(
     Per D-09 OVERRIDE: scale_pos_weight (XGBoost) is used, not is_unbalance
     (LightGBM-only, silently ignored by XGBoost — Pitfall 7 / RESEARCH.md).
 
-    CRITICAL: cv=5 (integer), NOT cv='prefit' (removed in scikit-learn 1.x).
+    Calibration folds are grouped by race (see _race_grouped_folds).
     CRITICAL: .dropna() is NEVER called — pit_stop_delta is 96% NULL (D-05).
 
     Args:
@@ -343,7 +362,9 @@ def train_inrace_model(
         eval_metric="logloss",
         verbosity=0,
     )
-    model = CalibratedClassifierCV(base_clf, cv=cv, method="sigmoid")
+    model = CalibratedClassifierCV(
+        base_clf, cv=_race_grouped_folds(df.loc[train_mask], cv), method="sigmoid"
+    )
     model.fit(X_train, y_train)
     return model
 
@@ -364,6 +385,53 @@ def save_model(model, path: Path) -> None:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(model, path)
+
+
+def dataset_hash(df: pd.DataFrame) -> str:
+    """Short content hash of a training/evaluation frame, for traceability."""
+    return hashlib.sha256(
+        pd.util.hash_pandas_object(df, index=False).values.tobytes()
+    ).hexdigest()[:16]
+
+
+def code_revision() -> str:
+    """Current git commit (with a -dirty suffix for uncommitted changes), or 'unknown'."""
+    try:
+        return subprocess.run(
+            ["git", "describe", "--always", "--dirty"],
+            cwd=Path(__file__).resolve().parent,
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+
+
+def save_metadata(model, artifact_path: Path, train_df: pd.DataFrame, feature_cols: list[str], metrics: dict) -> None:
+    """
+    Write <artifact>.meta.json next to a model artifact: what it was trained
+    on and with what, so served probabilities can be traced and evaluation
+    can refuse to score races the model has seen.
+    """
+    meta = {
+        **metrics,
+        "trained_at": datetime.now(timezone.utc).isoformat(),
+        "artifact_sha256": hashlib.sha256(artifact_path.read_bytes()).hexdigest()[:16],
+        "train_dataset_hash": dataset_hash(train_df),
+        "n_train_races": int(train_df["session_key"].nunique()),
+        "feature_cols": feature_cols,
+        "calibration": {"method": model.method, "folds": "GroupKFold by session_key"},
+        "normalization": "p / sum(p) within field",
+        "hyperparameters": {
+            k: v for k, v in model.estimator.get_params().items()
+            if v is not None and isinstance(v, (int, float, str, bool))
+        },
+        "library_versions": {
+            "xgboost": xgb.__version__, "scikit-learn": sklearn.__version__,
+            "numpy": np.__version__, "pandas": pd.__version__, "joblib": joblib.__version__,
+        },
+        "code_revision": code_revision(),
+    }
+    artifact_path.with_suffix(".meta.json").write_text(json.dumps(meta, indent=2) + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -473,6 +541,7 @@ def _train_prerace(args) -> None:
 
     artifact_path = args.output_dir / "prerace_model.joblib"
     save_model(model, artifact_path)
+    save_metadata(model, artifact_path, df[train_mask], PRERACE_FEATURE_COLS, metrics)
     logger.info("Saved prerace model to %s", artifact_path)
 
 
@@ -537,6 +606,10 @@ def _train_inrace(args) -> None:
 
     artifact_path = args.output_dir / "inrace_model.joblib"
     save_model(model, artifact_path)
+    save_metadata(
+        model, artifact_path, df[train_mask],
+        list(build_inrace_feature_matrix(df.head(1)).columns), metrics,
+    )
     logger.info("Saved inrace model to %s", artifact_path)
 
 

@@ -65,9 +65,10 @@ Train both models with 2024 held out for validation:
 python scripts/train.py --model prerace --val-year 2024
 python scripts/train.py --model inrace --val-year 2024
 python scripts/validate_model.py --val-year 2024
+python scripts/evaluate.py   # served probabilities vs simple baselines on unseen seasons
 ```
 
-Model artifacts live in `data/models/`. Retrain them in your environment if serialized artifacts are incompatible with installed dependency versions.
+Model artifacts live in `data/models/`, each with a `.meta.json` recording what it was trained on. `evaluate.py` writes a timestamped report to `data/eval/`. Retrain them in your environment if serialized artifacts are incompatible with installed dependency versions.
 
 ### Run the application
 
