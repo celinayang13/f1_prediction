@@ -12,7 +12,7 @@
   "n_val_races": 24,
   "sum_to_one_min": 0.9999999999999997,
   "sum_to_one_max": 1.0000000000000002,
-  "trained_at": "2026-11-12T08:05:02.957668+00:00",
+  "trained_at": "2026-11-12T15:54:37.766476+00:00",
   "artifact_sha256": "7351f41b1655c237",
   "train_dataset_hash": "20dd4f7e6d113e3c",
   "n_train_races": 44,
@@ -50,5 +50,5 @@
     "pandas": "2.3.3",
     "joblib": "1.6.0"
   },
-  "code_revision": "v1.0-10-g119e798-dirty"
+  "code_revision": "v1.0-12-gdeac15c-dirty"
 }
