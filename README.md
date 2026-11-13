@@ -172,7 +172,7 @@ It is **not used by the app** and is not yet as accurate as the served model (wa
 In-race it picks the winner as often as the served model but spreads its probabilities too widely. Not modelled: tyre compound, weather, cheaper pit stops under a safety car, virtual safety cars. Overtaking difficulty is hand-set (chosen on 2023 races only). Its value would be outputs the served model cannot give, such as podium or finishing-order probabilities.
 
 ```bash
-python scripts/simulate.py                  # every 4th lap is a reasonable trade-off: --every 4
+python scripts/simulate.py                  # every 3rd lap, 1000 simulated races per field
 python scripts/simulate.py --every 1 --sims 2000
 ```
 
