@@ -246,6 +246,20 @@ def build_features_for_session(
             driver_numbers = [int(r[0]) for r in driver_rows]
 
             if not driver_numbers:
+                # Before the race has run there are no race laps: the entrants
+                # are whoever took part in this weekend's qualifying.
+                driver_rows = conn.execute(
+                    text(
+                        "SELECT DISTINCT l.driver_number FROM raw_laps l "
+                        "JOIN raw_sessions q ON q.session_key = l.session_key "
+                        "WHERE q.year = :year AND q.round_number = :rn "
+                        "AND q.session_type = 'Qualifying'"
+                    ),
+                    {"year": int(year), "rn": int(round_number)},
+                ).fetchall()
+                driver_numbers = [int(r[0]) for r in driver_rows]
+
+            if not driver_numbers:
                 logger.info(
                     "build_features_for_session: no drivers found for session %d", session_key
                 )

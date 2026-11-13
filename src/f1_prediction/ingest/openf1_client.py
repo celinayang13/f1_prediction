@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import time
 from typing import Any
 
 import httpx
@@ -43,11 +45,40 @@ __all__ = [
     "fetch_weather",
     "fetch_intervals",
     "fetch_drivers",
+    "fetch_starting_grid",
 ]
+
+
+TOKEN_URL = "https://api.openf1.org/token"
+
+# (token, expiry as time.monotonic()) — shared so every poll does not log in again
+_token_cache: "tuple[str, float] | None" = None
 
 
 class RateLimitedError(Exception):
     """Raised when OpenF1 returns HTTP 429 (rate limited)."""
+
+
+async def _access_token(client: httpx.AsyncClient) -> "str | None":
+    """
+    OAuth2 token for OpenF1's paid tier, or None when no account is configured.
+
+    Data from 30 minutes before a session until 30 minutes after it is only
+    served to authenticated subscribers; everything else is free. Credentials
+    come from OPENF1_USERNAME / OPENF1_PASSWORD and are never logged.
+    """
+    global _token_cache
+    username, password = os.environ.get("OPENF1_USERNAME"), os.environ.get("OPENF1_PASSWORD")
+    if not username or not password:
+        return None
+    if _token_cache is not None and _token_cache[1] > time.monotonic():
+        return _token_cache[0]
+    resp = await client.post(TOKEN_URL, data={"username": username, "password": password})
+    resp.raise_for_status()
+    body = resp.json()
+    # refresh a minute early so a token never expires mid-request
+    _token_cache = (body["access_token"], time.monotonic() + float(body.get("expires_in", 3600)) - 60)
+    return _token_cache[0]
 
 
 class OpenF1Client:
@@ -82,6 +113,9 @@ class OpenF1Client:
         if self._transport is not None:
             kwargs["transport"] = self._transport
         self._client = httpx.AsyncClient(**kwargs)
+        token = await _access_token(self._client)
+        if token:
+            self._client.headers["Authorization"] = f"Bearer {token}"
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
@@ -166,6 +200,14 @@ class OpenF1Client:
         """Fetch the official classification from /v1/session_result for a session."""
         return await self._fetch("session_result", {"session_key": session_key})
 
+    async def race_control(self, session_key: int) -> list[dict]:
+        """Fetch race control messages from /v1/race_control for a session."""
+        return await self._fetch("race_control", {"session_key": session_key})
+
+    async def starting_grid(self, session_key: int) -> list[dict]:
+        """Fetch the starting grid from /v1/starting_grid (keyed by the qualifying session)."""
+        return await self._fetch("starting_grid", {"session_key": session_key})
+
     async def drivers(self, session_key: int) -> list[dict]:
         """Fetch driver metadata from /v1/drivers for a session."""
         return await self._fetch("drivers", {"session_key": session_key})
@@ -236,4 +278,12 @@ def fetch_drivers(session_key: int) -> list[dict]:
     async def _run():
         async with OpenF1Client() as c:
             return await c.drivers(session_key=session_key)
+    return asyncio.run(_run())
+
+
+def fetch_starting_grid(session_key: int) -> list[dict]:
+    """Synchronous wrapper for OpenF1Client.starting_grid (session_key of the qualifying session)."""
+    async def _run():
+        async with OpenF1Client() as client:
+            return await client.starting_grid(session_key)
     return asyncio.run(_run())

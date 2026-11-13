@@ -1,9 +1,18 @@
 """
 APScheduler live poller for OpenF1 race data (Plan 03, DATA-03).
 
-Polls OpenF1 every 30 seconds for an active race session, dedupes incoming
-laps by (session_key, driver_number, lap_number), and inserts new rows into
-the same raw_* tables as the backfill pipeline.
+Every poll fetches the session's laps, stints, positions and pit stops in
+full and replaces the stored rows for that session, using the same
+normalizers as the historical backfill (ingest/openf1_loader.py). Replacing
+rather than appending means a lap that arrives late for one driver, a lap
+whose time is filled in after it was first seen, and any corrected record
+are all picked up without per-record bookkeeping.
+
+Safety rules:
+  - Each table is swapped inside one transaction, so readers never see a
+    half-written session.
+  - An endpoint that fails or returns less than is already stored leaves
+    that table untouched — a bad poll never erases good data.
 
 Architecture decisions:
   - BackgroundScheduler (threaded) — runs in-process without blocking ASGI.
@@ -12,10 +21,9 @@ Architecture decisions:
     not nested await — creates a fresh event loop per call in the scheduler thread.
   - EVENT_JOB_ERROR listener logs all job exceptions (T-03-07 mitigation).
   - is_session_active check at start of every poll (Pitfall 7 mitigation).
-  - Stints are replaced per poll (DELETE-then-INSERT); lap/position/pit are
-    deduped in Python before INSERT.
 
-Security: no f-string SQL — all SQL uses text() with bound :param (T-03-05).
+Security: no f-string SQL — table names come from a fixed whitelist below
+         and all values use bound :param (T-03-05).
          --session-key is cast to int by argparse (T-03-04 accepted).
 """
 from __future__ import annotations
@@ -24,6 +32,7 @@ import asyncio
 import logging
 from typing import Callable, Optional
 
+import pandas as pd
 from apscheduler.events import EVENT_JOB_ERROR
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.schedulers.base import STATE_STOPPED
@@ -31,39 +40,53 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from f1_prediction.db.engine import get_engine
-from f1_prediction.db.upsert import bulk_insert_rows
+from f1_prediction.ingest.openf1_loader import (
+    _normalize_openf1_laps,
+    _normalize_openf1_pits,
+    _normalize_openf1_positions,
+    _normalize_openf1_stints,
+)
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["start_poller", "stop_poller", "poll_once"]
 
-# Fields to extract from OpenF1 laps response (per-field whitelist T-03-01)
-_LAP_FIELDS = [
-    "session_key", "driver_number", "lap_number", "lap_duration",
-    "duration_sector_1", "duration_sector_2", "duration_sector_3",
-    "is_pit_out_lap", "is_pit_in_lap", "i1_speed", "i2_speed", "st_speed",
-    "date_start", "tyre_compound_observed",
-    "segments_sector_1", "segments_sector_2", "segments_sector_3",
-]
-
-_STINT_FIELDS = [
-    "session_key", "driver_number", "stint_number",
-    "lap_start", "lap_end", "compound", "tyre_age_at_start",
-]
-
-_POSITION_FIELDS = [
-    "session_key", "driver_number", "lap_number", "position", "date_recorded",
-]
-
-_PIT_FIELDS = [
-    "session_key", "driver_number", "lap_number", "lane_duration", "stop_duration",
-    "date_recorded",
-]
+# table -> (client method, normalizer, result key, COUNT / DELETE statements)
+_TABLES = {
+    "raw_laps": ("laps", _normalize_openf1_laps, "laps_fetched"),
+    "raw_stints": ("stints", _normalize_openf1_stints, "stints_replaced"),
+    "raw_positions": ("position", _normalize_openf1_positions, "positions_inserted"),
+    "raw_pit_stops": ("pit", _normalize_openf1_pits, "pit_stops_inserted"),
+}
+_COUNT_SQL = {t: text(f"SELECT COUNT(*) FROM {t} WHERE session_key = :sk") for t in _TABLES}  # noqa: S608
+_DELETE_SQL = {t: text(f"DELETE FROM {t} WHERE session_key = :sk") for t in _TABLES}  # noqa: S608
+_LAP_STATE_SQL = text(
+    "SELECT driver_number, lap_number, lap_duration FROM raw_laps WHERE session_key = :sk"
+)
 
 
-def _extract(record: dict, fields: list[str]) -> dict:
-    """Extract only the whitelisted fields from an API response record."""
-    return {f: record.get(f) for f in fields}
+def _empty_result(session_key: int, **extra) -> dict:
+    return {
+        "session_key": session_key,
+        "skipped": False,
+        "laps_inserted": 0,
+        "stints_replaced": 0,
+        "positions_inserted": 0,
+        "pit_stops_inserted": 0,
+        **extra,
+    }
+
+
+async def _fetch_all(client, session_key: int) -> dict:
+    """Fetch every endpoint; one that fails maps to None so the others still apply."""
+    fetched = {}
+    for table, (method, _normalize, _key) in _TABLES.items():
+        try:
+            fetched[table] = await getattr(client, method)(session_key)
+        except Exception as exc:
+            logger.error("poll_once: %s fetch failed for session %d: %s", method, session_key, exc)
+            fetched[table] = None
+    return fetched
 
 
 def poll_once(
@@ -74,27 +97,26 @@ def poll_once(
     _client=None,
 ) -> dict:
     """
-    Perform one poll cycle: fetch new data from OpenF1 and insert into raw tables.
+    Perform one poll cycle: fetch the session from OpenF1 and replace its raw rows.
 
     Steps:
       1. Check if the session is within its active window (is_session_active).
          If not, return {skipped: True, reason: 'outside_window'}.
-      2. Find max lap_number already stored for this session (dedupe gate).
-      3. Fetch laps from OpenF1, filter to laps > max_lap_number, insert new rows.
-      4. Replace stints (DELETE + INSERT for session_key — small data, cleaner than diff).
-      5. Fetch positions and pit stops, dedupe in Python, insert new rows.
-      6. Return a summary dict.
+      2. Fetch laps, stints, positions and pit stops (each independently).
+      3. In one transaction, replace each table whose fetch succeeded and
+         returned at least as many rows as are stored.
 
     Args:
         session_key: OpenF1 session_key to poll.
         engine: SQLAlchemy engine (defaults to get_engine()).
         _is_active: Override for is_session_active (for testing).
-        _client: Override for OpenF1Client instance (for testing). May be an
-                 already-instantiated mock or a context-manager client.
+        _client: Override for OpenF1Client instance (for testing).
 
     Returns:
-        Dict with keys: session_key, skipped, laps_inserted, stints_replaced,
-        positions_inserted, pit_stops_inserted.
+        Dict with keys: session_key, skipped, laps_inserted (laps that are
+        new or whose time changed — the trigger for re-running inference),
+        stints_replaced, positions_inserted, pit_stops_inserted, and
+        degraded (list of tables left untouched this cycle, if any).
 
     Security: catches all exceptions and logs them — never crashes the scheduler
     thread (Pitfall 7 + T-03-07).
@@ -102,9 +124,6 @@ def poll_once(
     if engine is None:
         engine = get_engine()
 
-    # ------------------------------------------------------------------
-    # Step 1: Session window check
-    # ------------------------------------------------------------------
     if _is_active is None:
         from f1_prediction.live.session_window import is_session_active as _is_active_fn
         _is_active = _is_active_fn
@@ -117,231 +136,53 @@ def poll_once(
 
     if not active:
         logger.debug("poll_once: session %d outside active window — skipping", session_key)
-        return {
-            "session_key": session_key,
-            "skipped": True,
-            "reason": "outside_window",
-            "laps_inserted": 0,
-            "stints_replaced": 0,
-            "positions_inserted": 0,
-            "pit_stops_inserted": 0,
-        }
+        return _empty_result(session_key, skipped=True, reason="outside_window")
 
-    # ------------------------------------------------------------------
-    # Step 2: Find the highest lap_number already stored
-    # ------------------------------------------------------------------
     try:
-        with engine.connect() as conn:
-            max_lap_row = conn.execute(
-                text(
-                    "SELECT COALESCE(MAX(lap_number), 0) FROM raw_laps "
-                    "WHERE session_key = :sk"
-                ),
-                {"sk": session_key},
-            ).fetchone()
-            max_lap = int(max_lap_row[0]) if max_lap_row else 0
-    except Exception as exc:
-        logger.error("poll_once: DB read failed for session %d: %s", session_key, exc)
-        return {
-            "session_key": session_key,
-            "skipped": False,
-            "laps_inserted": 0,
-            "stints_replaced": 0,
-            "positions_inserted": 0,
-            "pit_stops_inserted": 0,
-            "error": str(exc),
-        }
-
-    # ------------------------------------------------------------------
-    # Step 3–5: Fetch from OpenF1 and insert
-    # ------------------------------------------------------------------
-    try:
-        if _client is not None:
-            # Test mode: use the injected client directly
-            raw_client = _client
-            laps_inserted = _fetch_and_insert_laps(session_key, raw_client, max_lap, engine)
-            stints_replaced = _replace_stints(session_key, raw_client, engine)
-            positions_inserted = _fetch_and_insert_positions(session_key, raw_client, engine)
-            pit_stops_inserted = _fetch_and_insert_pits(session_key, raw_client, engine)
-        else:
-            # Production mode: open a fresh OpenF1Client
+        async def _run():
+            if _client is not None:
+                return await _fetch_all(_client, session_key)
             from f1_prediction.ingest.openf1_client import OpenF1Client
+            async with OpenF1Client() as client:
+                return await _fetch_all(client, session_key)
 
-            async def _run_all():
-                async with OpenF1Client() as c:
-                    li = await _async_fetch_laps(session_key, c, max_lap, engine)
-                    sr = await _async_replace_stints(session_key, c, engine)
-                    pi = await _async_fetch_positions(session_key, c, engine)
-                    psi = await _async_fetch_pits(session_key, c, engine)
-                    return li, sr, pi, psi
+        fetched = asyncio.run(_run())
 
-            laps_inserted, stints_replaced, positions_inserted, pit_stops_inserted = asyncio.run(_run_all())
+        result = _empty_result(session_key)
+        degraded = []
+        with engine.begin() as conn:
+            laps_before = set(conn.execute(_LAP_STATE_SQL, {"sk": session_key}).fetchall())
+            for table, (_method, normalize, key) in _TABLES.items():
+                raw = fetched[table]
+                rows = normalize(raw, session_key) if raw is not None else []
+                stored = conn.execute(_COUNT_SQL[table], {"sk": session_key}).scalar()
+                # laps, positions and pit stops only ever grow during a session;
+                # fewer rows than stored means a partial response, not a correction
+                if raw is None or (table != "raw_stints" and len(rows) < stored):
+                    degraded.append(table)
+                    continue
+                if not rows:
+                    continue
+                conn.execute(_DELETE_SQL[table], {"sk": session_key})
+                pd.DataFrame(rows).to_sql(
+                    table, conn, if_exists="append", index=False, method="multi", chunksize=500
+                )
+                result[key] = len(rows) if table == "raw_stints" else len(rows) - stored
+            laps_after = set(conn.execute(_LAP_STATE_SQL, {"sk": session_key}).fetchall())
 
+        result.pop("laps_fetched", None)
+        result["laps_inserted"] = len(laps_after - laps_before)
+        if degraded:
+            result["degraded"] = degraded
+            logger.warning("poll_once: session %d kept stored rows for %s", session_key, degraded)
     except Exception as exc:
         logger.error(
             "poll_once: fetch/insert failed for session %d: %s", session_key, exc, exc_info=True
         )
-        return {
-            "session_key": session_key,
-            "skipped": False,
-            "laps_inserted": 0,
-            "stints_replaced": 0,
-            "positions_inserted": 0,
-            "pit_stops_inserted": 0,
-            "error": str(exc),
-        }
+        return _empty_result(session_key, error=str(exc))
 
-    result = {
-        "session_key": session_key,
-        "skipped": False,
-        "laps_inserted": laps_inserted,
-        "stints_replaced": stints_replaced,
-        "positions_inserted": positions_inserted,
-        "pit_stops_inserted": pit_stops_inserted,
-    }
     logger.info("poll_once: session %d — %s", session_key, result)
     return result
-
-
-# ---------------------------------------------------------------------------
-# Synchronous helpers (used when _client is injected in tests)
-# ---------------------------------------------------------------------------
-
-def _fetch_and_insert_laps(session_key: int, client, max_lap: int, engine: Engine) -> int:
-    """Fetch laps from the injected client, filter new, insert."""
-    laps_raw = asyncio.run(client.laps(session_key))
-    new_laps = [
-        _extract(lap, _LAP_FIELDS)
-        for lap in laps_raw
-        if lap.get("lap_number") is not None and int(lap["lap_number"]) > max_lap
-    ]
-    return bulk_insert_rows(engine, "raw_laps", new_laps)
-
-
-def _replace_stints(session_key: int, client, engine: Engine) -> int:
-    """Replace all stints for this session: DELETE then INSERT."""
-    stints_raw = asyncio.run(client.stints(session_key))
-    stints = [_extract(s, _STINT_FIELDS) for s in stints_raw]
-    with engine.connect() as conn:
-        conn.execute(
-            text("DELETE FROM raw_stints WHERE session_key = :sk"),
-            {"sk": session_key},
-        )
-        conn.commit()
-    return bulk_insert_rows(engine, "raw_stints", stints)
-
-
-def _fetch_and_insert_positions(session_key: int, client, engine: Engine) -> int:
-    """Fetch positions, dedupe in Python, insert new rows."""
-    positions_raw = asyncio.run(client.position(session_key))
-    # Find existing (driver_number, lap_number) pairs
-    with engine.connect() as conn:
-        existing = set(
-            conn.execute(
-                text(
-                    "SELECT driver_number, lap_number FROM raw_positions "
-                    "WHERE session_key = :sk"
-                ),
-                {"sk": session_key},
-            ).fetchall()
-        )
-    new_positions = [
-        _extract(p, _POSITION_FIELDS)
-        for p in positions_raw
-        if (p.get("driver_number"), p.get("lap_number")) not in existing
-        and p.get("lap_number") is not None
-    ]
-    return bulk_insert_rows(engine, "raw_positions", new_positions)
-
-
-def _fetch_and_insert_pits(session_key: int, client, engine: Engine) -> int:
-    """Fetch pit stops, dedupe in Python, insert new rows."""
-    pits_raw = asyncio.run(client.pit(session_key))
-    with engine.connect() as conn:
-        existing = set(
-            conn.execute(
-                text(
-                    "SELECT driver_number, lap_number FROM raw_pit_stops "
-                    "WHERE session_key = :sk"
-                ),
-                {"sk": session_key},
-            ).fetchall()
-        )
-    new_pits = [
-        _extract(p, _PIT_FIELDS)
-        for p in pits_raw
-        if (p.get("driver_number"), p.get("lap_number")) not in existing
-        and p.get("lap_number") is not None
-    ]
-    return bulk_insert_rows(engine, "raw_pit_stops", new_pits)
-
-
-# ---------------------------------------------------------------------------
-# Async helpers (used in production mode with real OpenF1Client)
-# ---------------------------------------------------------------------------
-
-async def _async_fetch_laps(session_key: int, client, max_lap: int, engine: Engine) -> int:
-    laps_raw = await client.laps(session_key)
-    new_laps = [
-        _extract(lap, _LAP_FIELDS)
-        for lap in laps_raw
-        if lap.get("lap_number") is not None and int(lap["lap_number"]) > max_lap
-    ]
-    return bulk_insert_rows(engine, "raw_laps", new_laps)
-
-
-async def _async_replace_stints(session_key: int, client, engine: Engine) -> int:
-    stints_raw = await client.stints(session_key)
-    stints = [_extract(s, _STINT_FIELDS) for s in stints_raw]
-    with engine.connect() as conn:
-        conn.execute(
-            text("DELETE FROM raw_stints WHERE session_key = :sk"),
-            {"sk": session_key},
-        )
-        conn.commit()
-    return bulk_insert_rows(engine, "raw_stints", stints)
-
-
-async def _async_fetch_positions(session_key: int, client, engine: Engine) -> int:
-    positions_raw = await client.position(session_key)
-    with engine.connect() as conn:
-        existing = set(
-            conn.execute(
-                text(
-                    "SELECT driver_number, lap_number FROM raw_positions "
-                    "WHERE session_key = :sk"
-                ),
-                {"sk": session_key},
-            ).fetchall()
-        )
-    new_positions = [
-        _extract(p, _POSITION_FIELDS)
-        for p in positions_raw
-        if (p.get("driver_number"), p.get("lap_number")) not in existing
-        and p.get("lap_number") is not None
-    ]
-    return bulk_insert_rows(engine, "raw_positions", new_positions)
-
-
-async def _async_fetch_pits(session_key: int, client, engine: Engine) -> int:
-    pits_raw = await client.pit(session_key)
-    with engine.connect() as conn:
-        existing = set(
-            conn.execute(
-                text(
-                    "SELECT driver_number, lap_number FROM raw_pit_stops "
-                    "WHERE session_key = :sk"
-                ),
-                {"sk": session_key},
-            ).fetchall()
-        )
-    new_pits = [
-        _extract(p, _PIT_FIELDS)
-        for p in pits_raw
-        if (p.get("driver_number"), p.get("lap_number")) not in existing
-        and p.get("lap_number") is not None
-    ]
-    return bulk_insert_rows(engine, "raw_pit_stops", new_pits)
 
 
 # ---------------------------------------------------------------------------

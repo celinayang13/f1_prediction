@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-09)
 Phase: Milestone v1.0 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-07-09 — Milestone v1.0 completed and archived
+Last activity: 2026-11-12 — Created and reviewed next-steps proposal; implementation remains pending
 
 ## Performance Metrics
 
@@ -124,6 +124,7 @@ None.
 | ID | Description | Date | Commits |
 |----|-------------|------|---------|
 | 260807-lo4 | Regularize XGBoost hyperparameters (depth 6/500 trees → depth 3/200 trees + subsampling) after 2-split benchmark showed overfitting; retrained + validated both artifacts | 2026-08-07 | 9805648, bb8ba73 |
+| 261112-14e | Created and reviewed prioritized correctness and live-readiness proposal at docs/proposals/2026-11-12-f1-next-steps.md; no application changes | 2026-11-12 | Uncommitted |
 
 ## Deferred Items
 

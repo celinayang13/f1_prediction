@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
@@ -450,12 +451,21 @@ def load_openf1_year(
     logger.info("Fetching OpenF1 session list for year=%d", year)
     all_sessions = asyncio.run(_fetch_sessions())
 
+    now = datetime.now(timezone.utc)
     results: list[dict] = []
     for sess in all_sessions:
         canonical_type = _canonical_session_type(sess)
 
         if sess.get("is_cancelled"):
             logger.info("Skipping cancelled session %s", sess.get("session_key"))
+            continue
+
+        # A session that has not finished (or finished under 30 minutes ago and is
+        # still paid-only) would be stored empty and then skipped forever as
+        # "already loaded".
+        date_end = sess.get("date_end")
+        if not date_end or datetime.fromisoformat(date_end.replace("Z", "+00:00")) + timedelta(minutes=30) > now:
+            logger.info("Skipping session %s: not finished yet", sess.get("session_key"))
             continue
 
         if canonical_type not in target_types:
@@ -594,6 +604,54 @@ def load_openf1_drivers(*, engine: Engine | None = None) -> int:
             }
             for d in drivers
             if _safe_int(d.get("driver_number")) is not None
+        ])
+        time.sleep(60 / 28)  # stay under OpenF1's 30 requests/minute
+    return inserted
+
+
+def load_openf1_race_control(*, engine: Engine | None = None) -> int:
+    """
+    Fetch race control messages for every OpenF1 Race session that has none
+    stored yet (idempotent, one request per session).
+
+    Returns:
+        Number of raw_race_control rows inserted.
+    """
+    if engine is None:
+        engine = get_engine()
+    init_db(engine)
+
+    with engine.connect() as conn:
+        session_keys = [
+            int(r[0]) for r in conn.execute(text(
+                "SELECT session_key FROM raw_sessions "
+                "WHERE source = 'openf1' AND session_type = 'Race' "
+                "AND session_key NOT IN (SELECT session_key FROM raw_race_control) "
+                "ORDER BY session_key"
+            ))
+        ]
+
+    async def _fetch(session_key: int):
+        async with OpenF1Client() as client:
+            return await client.race_control(session_key)
+
+    inserted = 0
+    for sk in session_keys:
+        try:
+            messages = asyncio.run(_fetch(sk))
+        except Exception:
+            logger.exception("Failed to load OpenF1 race control for session %d", sk)
+            continue
+        inserted += bulk_insert_rows(engine, "raw_race_control", [
+            {
+                "session_key": sk,
+                "date_recorded": m.get("date"),
+                "lap_number": _safe_int(m.get("lap_number")),
+                "category": m.get("category"),
+                "flag": m.get("flag"),
+                "message": m.get("message"),
+            }
+            for m in messages
         ])
         time.sleep(60 / 28)  # stay under OpenF1's 30 requests/minute
     return inserted
