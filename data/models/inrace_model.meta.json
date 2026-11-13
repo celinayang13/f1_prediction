@@ -5,30 +5,31 @@
     2022,
     2023,
     2024,
-    2025
+    2025,
+    2026
   ],
-  "n_train_races": 92,
-  "n_train_fields": 5472,
-  "trained_at": "2026-11-12T17:31:46.151159+00:00",
-  "artifact_sha256": "2d95f674211e4625",
-  "train_dataset_hash": "fece1b92c54f3fba",
+  "n_train_races": 112,
+  "n_train_fields": 6693,
+  "trained_at": "2026-11-12T21:51:13.919344+00:00",
+  "artifact_sha256": "6d96ef3f3ca408f3",
+  "train_dataset_hash": "dc380e2e5e81302b",
   "l2_penalty": 0.001,
   "coefficients_on_standardized_inputs": {
-    "log_pos": -0.8945,
-    "log_gap": -0.4856,
-    "log_pos_x_prog": -0.9439,
-    "log_gap_x_prog": 0.1067,
-    "is_leader": -0.0479,
-    "is_leader_x_prog": 0.0627,
-    "pit_rel": 0.5162,
-    "pit_rel_x_prog": -0.0126,
-    "log_gap_per_lap_left": -1.4871,
-    "log_grid": 0.0183,
-    "log_grid_x_prog": -0.4204,
-    "tyre_age_rel": -1.2029,
-    "tyre_age_rel_x_prog": 0.4477,
-    "recent_quali_delta": -1.8211,
-    "recent_quali_delta_x_prog": 0.4969
+    "log_pos": -0.7463,
+    "log_gap": -0.4933,
+    "log_pos_x_prog": -1.1079,
+    "log_gap_x_prog": -0.0317,
+    "is_leader": -0.152,
+    "is_leader_x_prog": 0.1254,
+    "pit_rel": 0.3524,
+    "pit_rel_x_prog": 0.1305,
+    "log_gap_per_lap_left": -1.5609,
+    "log_grid": -0.4229,
+    "log_grid_x_prog": 0.0922,
+    "tyre_age_rel": -1.1864,
+    "tyre_age_rel_x_prog": 0.366,
+    "recent_quali_delta": -1.7167,
+    "recent_quali_delta_x_prog": 0.2689
   },
   "normalization": "softmax over the field (scores / sum of scores)",
   "library_versions": {
@@ -38,5 +39,5 @@
     "pandas": "2.3.3",
     "joblib": "1.6.0"
   },
-  "code_revision": "v1.0-14-gd6c8d4d-dirty"
+  "code_revision": "v1.0-17-g519953f-dirty"
 }

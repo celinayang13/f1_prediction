@@ -1,17 +1,25 @@
 """
 Pipeline entrypoint (D-01, D-06, D-09, D-11).
 
-`python -m src.f1_prediction.pipeline`:
-  1. Resolves the latest Race-type session_key in the DB (D-01, no manual
-     --session-key flag).
-  2. Best-effort syncs driver metadata (raw_drivers) from OpenF1 /v1/drivers
-     for that session (D-06) — never crashes startup if this fails.
-  3. Computes pre-race win probabilities once per session, skipping if
-     'prerace' predictions already exist (D-11 idempotent restart).
-  4. Starts the in-race poll loop (reusing live/poller.py's BackgroundScheduler
+`python -m f1_prediction.pipeline [--session-key N]`:
+  1. Picks the race to follow from the OpenF1 schedule: the one in progress,
+     otherwise the next one. If the schedule cannot be fetched (or the season
+     is over) it falls back to the latest race stored in the database.
+     --session-key overrides the choice (operation and replay).
+  2. Prepares the weekend: stores the race session, loads the weekend's
+     finished qualifying/practice/sprint sessions, the starting grid and
+     driver metadata, rebuilds pre-race features and recomputes pre-race
+     predictions. Repeated every 10 minutes until the race starts, so the
+     prediction follows qualifying and grid changes.
+  3. Starts the in-race poll loop (reusing live/poller.py's BackgroundScheduler
      pattern) with a post-poll inference hook: after each poll_once() call,
-     run_inference_after_poll() triggers in-race inference only when new laps
-     arrived (D-09).
+     run_inference_after_poll() triggers in-race inference only when laps
+     arrived or changed (D-09).
+
+OpenF1 serves data from 30 minutes before a session until 30 minutes after
+it only to paid subscribers (set OPENF1_USERNAME / OPENF1_PASSWORD). Without
+an account the poll loop collects nothing during the race and catches up
+once the data becomes free.
 
 Security: all SQL uses text() with bound :param names — no f-string SQL (T-03-05).
 Driver fields are whitelist-extracted before insert (T-03-01) — the raw
@@ -19,10 +27,12 @@ OpenF1 response dict is never inserted directly.
 """
 from __future__ import annotations
 
+import argparse
 import logging
 import signal
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from apscheduler.events import EVENT_JOB_ERROR
@@ -30,11 +40,17 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from f1_prediction.db.engine import get_engine
+from f1_prediction.db.engine import get_engine, init_db
 from f1_prediction.db.queries import get_latest_race_session_key
-from f1_prediction.db.upsert import bulk_insert_rows
+from f1_prediction.db.upsert import bulk_insert_rows, insert_or_skip_session, session_exists
+from f1_prediction.features.builder import build_features_for_session
 from f1_prediction.inference.inrace import compute_and_store_inrace_latest_lap
 from f1_prediction.inference.prerace import compute_and_store_prerace
+from f1_prediction.ingest.openf1_loader import (
+    _canonical_session_type,
+    _normalize_openf1_session,
+    load_openf1_session,
+)
 from f1_prediction.live.poller import poll_once
 
 logger = logging.getLogger(__name__)
@@ -44,8 +60,131 @@ __all__ = [
     "prerace_already_computed",
     "sync_drivers_for_session",
     "run_inference_after_poll",
+    "pick_target_race",
+    "prepare_weekend",
     "main",
 ]
+
+# OpenF1 serves a session for free from this long after it ends
+_FREE_AFTER = timedelta(minutes=30)
+# A race still counts as in progress this long after its scheduled end
+_RACE_OVERRUN = timedelta(hours=2)
+# Weekend sessions that feed the pre-race features
+_WEEKEND_SESSION_TYPES = {"Qualifying", "Practice 2", "Practice 3", "Sprint", "Sprint Shootout"}
+
+
+def _utc(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _races(schedule: list[dict]) -> list[dict]:
+    """Non-cancelled Grand Prix sessions of a season schedule, in date order."""
+    return sorted(
+        (
+            s for s in schedule
+            if _canonical_session_type(s) == "Race" and not s.get("is_cancelled")
+            and s.get("date_start") and s.get("date_end")
+        ),
+        key=lambda s: s["date_start"],
+    )
+
+
+def pick_target_race(schedule: list[dict], now: datetime) -> Optional[dict]:
+    """
+    The race to follow: the one in progress, otherwise the next to start.
+
+    A race counts as in progress from 30 minutes before its start until two
+    hours after its scheduled end, so a later race on the calendar never
+    displaces one that is running (or overrunning).
+
+    Args:
+        schedule: OpenF1 /v1/sessions rows for the season.
+        now: Current time (timezone-aware).
+
+    Returns:
+        The chosen session dict, or None if the season has no race left.
+    """
+    races = _races(schedule)
+    for race in races:
+        if _utc(race["date_start"]) - _FREE_AFTER <= now <= _utc(race["date_end"]) + _RACE_OVERRUN:
+            return race
+    return next((race for race in races if _utc(race["date_start"]) > now), None)
+
+
+def prepare_weekend(engine: Engine, race: dict, schedule: list[dict], now: datetime) -> int:
+    """
+    Bring everything the pre-race prediction needs up to date for one race,
+    then recompute that prediction. Safe to call repeatedly.
+
+    Args:
+        engine: SQLAlchemy Engine.
+        race: The race's OpenF1 /v1/sessions row.
+        schedule: The season's OpenF1 /v1/sessions rows.
+        now: Current time (timezone-aware).
+
+    Returns:
+        Number of pre-race prediction rows written (0 if qualifying has not
+        been loaded yet).
+    """
+    race_key, meeting_key, year = int(race["session_key"]), race.get("meeting_key"), int(race["year"])
+    round_number = [int(r["session_key"]) for r in _races(schedule)].index(race_key) + 1
+
+    insert_or_skip_session(engine, _normalize_openf1_session(race))
+
+    # weekend sessions that have finished long enough ago to be freely available
+    qualifying_key = None
+    for sess in schedule:
+        if sess.get("meeting_key") != meeting_key or sess.get("is_cancelled"):
+            continue
+        session_type = _canonical_session_type(sess)
+        if session_type == "Qualifying":
+            qualifying_key = int(sess["session_key"])
+        if session_type not in _WEEKEND_SESSION_TYPES or not sess.get("date_end"):
+            continue
+        if _utc(sess["date_end"]) + _FREE_AFTER > now or session_exists(engine, int(sess["session_key"])):
+            continue
+        try:
+            load_openf1_session(year, int(sess["session_key"]), engine=engine)
+        except Exception as exc:
+            logger.warning("prepare_weekend: could not load %s session %s: %s",
+                           session_type, sess.get("session_key"), exc)
+
+    # the feature builder finds a weekend's sessions by (year, round_number)
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE raw_sessions SET round_number = :rn WHERE meeting_key = :mk"),
+            {"rn": round_number, "mk": meeting_key},
+        )
+
+    if qualifying_key is not None and session_exists(engine, qualifying_key):
+        try:
+            from f1_prediction.ingest.openf1_client import fetch_starting_grid
+
+            grid = [
+                {"session_key": race_key, "driver_number": int(g["driver_number"]), "position": int(g["position"])}
+                for g in fetch_starting_grid(qualifying_key)
+                if g.get("driver_number") is not None and g.get("position") is not None
+            ]
+            if grid:
+                with engine.begin() as conn:
+                    conn.execute(text("DELETE FROM raw_starting_grid WHERE session_key = :sk"), {"sk": race_key})
+                    conn.execute(
+                        text(
+                            "INSERT INTO raw_starting_grid (session_key, driver_number, position) "
+                            "VALUES (:session_key, :driver_number, :position)"
+                        ),
+                        grid,
+                    )
+        except Exception as exc:
+            logger.warning("prepare_weekend: could not load the starting grid: %s", exc)
+
+    sync_drivers_for_session(engine, race_key)
+    build_features_for_session(race_key, engine=engine, kind="prerace")
+    written = compute_and_store_prerace(race_key, engine=engine)
+    logger.info("prepare_weekend: session %d (round %d) — %d pre-race predictions", race_key, round_number, written)
+    return written
+
 
 # Whitelist for OpenF1 /v1/drivers fields (T-03-01) — mirrors _LAP_FIELDS/
 # _STINT_FIELDS in live/poller.py.
@@ -163,7 +302,12 @@ def _handle_sigterm(signum, frame) -> None:
 
 
 def main(*, engine: Optional[Engine] = None) -> None:
-    """CLI entrypoint: `python -m src.f1_prediction.pipeline`."""
+    """CLI entrypoint: `python -m f1_prediction.pipeline [--session-key N]`."""
+    parser = argparse.ArgumentParser(description="Follow one race: pre-race predictions, then lap-by-lap updates.")
+    parser.add_argument("--session-key", type=int, default=None,
+                        help="Race session to follow (default: the race in progress, else the next one).")
+    args = parser.parse_args()
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -174,31 +318,59 @@ def main(*, engine: Optional[Engine] = None) -> None:
 
     if engine is None:
         engine = get_engine()
+    init_db(engine)
 
-    session_key = get_latest_race_session_key(engine)
-    if session_key is None:
-        logger.error(
-            "No race session found in the database. Run scripts/backfill.py "
-            "or start the live poller, then relaunch the pipeline."
-        )
-        sys.exit(1)
+    # Which race? The schedule decides; the database is only a fallback.
+    now = datetime.now(timezone.utc)
+    schedule, race = [], None
+    try:
+        from f1_prediction.ingest.openf1_client import fetch_sessions
 
-    logger.info("pipeline: latest race session_key=%d", session_key)
+        schedule = fetch_sessions(year=now.year)
+        if args.session_key is not None:
+            race = next((s for s in schedule if int(s["session_key"]) == args.session_key), None)
+        else:
+            race = pick_target_race(schedule, now)
+    except Exception as exc:
+        logger.warning("pipeline: could not fetch the OpenF1 schedule: %s", exc)
 
-    sync_drivers_for_session(engine, session_key)
-
-    if not prerace_already_computed(engine, session_key):
-        compute_and_store_prerace(session_key, engine=engine)
+    if race is not None:
+        session_key = int(race["session_key"])
+        logger.info("pipeline: following %s %s (session_key=%d, starts %s)",
+                    race.get("year"), race.get("country_name"), session_key, race.get("date_start"))
+        race_start = _utc(race["date_start"])
     else:
-        logger.info(
-            "pipeline: prerace predictions already computed for session %d — skipping (D-11)",
-            session_key,
-        )
+        session_key = args.session_key or get_latest_race_session_key(engine)
+        if session_key is None:
+            logger.error(
+                "No race session found in the database. Run scripts/backfill.py "
+                "or start the live poller, then relaunch the pipeline."
+            )
+            sys.exit(1)
+        logger.info("pipeline: no scheduled race to follow — using stored session_key=%d", session_key)
+        race_start = None
+
+    def _prepare_job():
+        # Always recompute: a retrained model or changed qualifying data must
+        # replace the stored pre-race numbers, never be skipped as "already done".
+        current = datetime.now(timezone.utc)
+        if race is not None:
+            if race_start is not None and current >= race_start:
+                return
+            prepare_weekend(engine, race, schedule, current)
+        else:
+            sync_drivers_for_session(engine, session_key)
+            compute_and_store_prerace(session_key, engine=engine)
+
+    try:
+        _prepare_job()
+    except Exception as exc:
+        logger.error("pipeline: weekend preparation failed: %s", exc, exc_info=True)
 
     # In-race poll loop (D-09): reuse live/poller.py's BackgroundScheduler
     # pattern (max_instances=1, misfire_grace_time=15, EVENT_JOB_ERROR
     # listener). After each poll_once() call, run_inference_after_poll()
-    # triggers in-race inference only when new laps arrived.
+    # triggers in-race inference only when laps arrived or changed.
     scheduler = BackgroundScheduler()
 
     def _poll_and_infer_job():
@@ -206,7 +378,7 @@ def main(*, engine: Optional[Engine] = None) -> None:
         run_inference_after_poll(engine, session_key, result)
 
     def _on_error(event):
-        logger.error("pipeline poll job failed: %s", event.exception)
+        logger.error("pipeline job failed: %s", event.exception)
 
     scheduler.add_listener(_on_error, EVENT_JOB_ERROR)
     scheduler.add_job(
@@ -217,6 +389,8 @@ def main(*, engine: Optional[Engine] = None) -> None:
         max_instances=1,
         misfire_grace_time=15,
     )
+    if race_start is not None:
+        scheduler.add_job(_prepare_job, "interval", minutes=10, id="prepare_weekend", max_instances=1)
     scheduler.start()
     logger.info(
         "pipeline: in-race poll loop started for session %d (interval=30s)",
