@@ -464,3 +464,17 @@ class RawSessionResult(Base):
     dnf = Column(Boolean)
     dns = Column(Boolean)
     dsq = Column(Boolean)
+
+
+class RawStartingGrid(Base):
+    """
+    Official starting grid for a race, one row per driver (OpenF1
+    /v1/starting_grid, published after qualifying). Stored under the RACE
+    session_key so the grid is known before the race has any position data.
+    """
+
+    __tablename__ = "raw_starting_grid"
+
+    session_key = Column(Integer, primary_key=True)
+    driver_number = Column(Integer, primary_key=True)
+    position = Column(Integer, nullable=False)

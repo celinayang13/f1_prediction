@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
@@ -450,12 +451,21 @@ def load_openf1_year(
     logger.info("Fetching OpenF1 session list for year=%d", year)
     all_sessions = asyncio.run(_fetch_sessions())
 
+    now = datetime.now(timezone.utc)
     results: list[dict] = []
     for sess in all_sessions:
         canonical_type = _canonical_session_type(sess)
 
         if sess.get("is_cancelled"):
             logger.info("Skipping cancelled session %s", sess.get("session_key"))
+            continue
+
+        # A session that has not finished (or finished under 30 minutes ago and is
+        # still paid-only) would be stored empty and then skipped forever as
+        # "already loaded".
+        date_end = sess.get("date_end")
+        if not date_end or datetime.fromisoformat(date_end.replace("Z", "+00:00")) + timedelta(minutes=30) > now:
+            logger.info("Skipping session %s: not finished yet", sess.get("session_key"))
             continue
 
         if canonical_type not in target_types:

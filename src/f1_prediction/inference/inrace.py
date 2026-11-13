@@ -3,8 +3,8 @@ In-race win probability inference (D-09, INRACE-02 contract reused).
 
 Rebuild-then-slice (Pattern 1): calls build_features_for_session(kind="inrace")
 to fully rebuild features_inrace for the session from raw_* tables, then
-slices to the latest lap (MAX(lap_number)) and computes normalized
-win probabilities for that lap only.
+slices to the latest lap enough of the field has completed (see
+_publishable_lap) and computes normalized win probabilities for that lap only.
 
 Do NOT hand-roll a separate incremental per-lap feature path — the
 gap_to_leader/interval join in features/inrace.py had a real prior bug
@@ -44,6 +44,42 @@ __all__ = ["compute_and_store_inrace_latest_lap"]
 DEFAULT_MODEL_PATH = "data/models/inrace_model.joblib"
 
 
+# A lap is published once this share of the cars that completed the previous
+# lap have completed it too (and never for fewer than this many cars).
+_MIN_FIELD_SHARE = 0.4
+_MIN_FIELD_CARS = 3
+
+
+def _publishable_lap(conn, session_key: int) -> Optional[int]:
+    """
+    Latest lap that enough of the field has completed to form a distribution.
+
+    The leader finishes each lap before everyone else; predicting on that lap
+    straight away would give a one-car field and a 100% "probability".
+
+    # shortcut: if more than 60% of the running cars are lapped the final lap
+    # is never published, switch to a per-driver latest-state snapshot then.
+
+    Returns:
+        The lap number, or None if no lap qualifies yet.
+    """
+    counts = dict(conn.execute(
+        text(
+            "SELECT lap_number, COUNT(*) FROM features_inrace "
+            "WHERE session_key = :sk GROUP BY lap_number"
+        ),
+        {"sk": session_key},
+    ).fetchall())
+    if not counts:
+        return None
+    field_size = max(counts.values())
+    for lap in sorted(counts, reverse=True):
+        previous = counts.get(lap - 1, field_size)
+        if counts[lap] >= max(_MIN_FIELD_CARS, _MIN_FIELD_SHARE * previous):
+            return int(lap)
+    return None
+
+
 def compute_and_store_inrace_latest_lap(
     session_key: int,
     model_path: "str | Path" = DEFAULT_MODEL_PATH,
@@ -74,13 +110,7 @@ def compute_and_store_inrace_latest_lap(
 
     # WR-02: read features in one connection, close it before writing.
     with engine.connect() as conn:
-        max_lap_row = conn.execute(
-            text(
-                "SELECT MAX(lap_number) FROM features_inrace WHERE session_key = :sk"
-            ),
-            {"sk": session_key},
-        ).fetchone()
-        max_lap = max_lap_row[0] if max_lap_row else None
+        max_lap = _publishable_lap(conn, session_key)
 
         if max_lap is None:
             logger.warning(

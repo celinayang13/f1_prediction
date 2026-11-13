@@ -1,34 +1,68 @@
 # F1 Race Winner Prediction
 
-A local Python application that estimates each driver's chance of winning an F1 Grand Prix before the race and updates predictions as lap data arrives. A Streamlit dashboard displays probabilities and race state.
+A local Python application that estimates each driver's chance of winning an F1 Grand Prix before the race and updates the estimate lap by lap. A Streamlit dashboard shows the probabilities and the state of the race.
+
+## How well it works
+
+Every season is predicted by models trained only on earlier seasons (walk-forward). "Winner score" is the average negative log of the probability given to the actual winner: lower is better, and a uniform guess scores about 3.0. Brackets are 95% intervals from resampling whole races.
+
+**All tested seasons, 2023–2026 (90 races)**
+
+| | Winner score | Top pick wins |
+| --- | --- | --- |
+| Pre-race: grid-slot lookup (baseline) | 1.56 | 61% |
+| Pre-race: served model | 1.16 | 60% |
+| Pre-race difference | −0.40 [−0.52, −0.28] | |
+| In-race: position-by-stage lookup (baseline) | 0.84 | 77% |
+| In-race: served model | 0.62 | 81% |
+| In-race difference | −0.22 [−0.30, −0.15] | |
+
+**2026 only (20 races)** — the one season no modelling choice had seen:
+
+| | Winner score | Top pick wins |
+| --- | --- | --- |
+| Pre-race: grid-slot lookup | 1.32 | 70% |
+| Pre-race: served model | 1.19 | 65% |
+| Pre-race difference | −0.13 [−0.36, +0.10] | |
+| In-race: position-by-stage lookup | 1.03 | 65% |
+| In-race: served model | 0.72 | 71% |
+| In-race difference | −0.32 [−0.51, −0.16] | |
+
+What to take from this:
+
+- **In-race predictions clearly beat the simple baseline**, including on 2026.
+- **Pre-race predictions are not established as better than "look at the grid"** on 2026 alone, and should be treated as experimental. 2023–2025 informed the choice of inputs, so the all-seasons pre-race figure is optimistic.
+- **The model is not memorising:** it scores about the same on races it was trained on as on races it was not (pre-race 1.13 vs 1.16).
+- Top-pick accuracy is similar to the baselines; the gain is in how well the probabilities are sized.
+
+Reproduce with `python scripts/evaluate.py`. Each run writes a timestamped report to `data/eval/`.
 
 ## Architecture
 
 ```text
-FastF1 / OpenF1 → ingestion → SQLite raw tables → feature engineering
-                                                       ↓
-                                                SQLite features
-                                                       ↓
-                                       field-choice win models     
-                                                       ↓
-                                            SQLite predictions
-                                                       ↓
-                                           Streamlit + Plotly
+FastF1 (2022) / OpenF1 (2023+) → ingestion → SQLite raw tables → feature engineering
+                                                                        ↓
+                                                                 SQLite features
+                                                                        ↓
+                                                             field-choice win models
+                                                                        ↓
+                                                               SQLite predictions
+                                                                        ↓
+                                                               Streamlit + Plotly
 ```
 
-The prediction pipeline and dashboard run independently and share a SQLite database. WAL mode supports concurrent reads and writes; prediction replacements use transactions.
+The prediction pipeline and dashboard run independently and share a SQLite database. WAL mode supports concurrent reads and writes; every replacement of predictions or live race data happens inside one transaction, so the dashboard never reads a half-written race.
 
 ## Stack
 
 | Layer | Tools |
 | --- | --- |
 | Runtime | Python 3.11+, setuptools |
-| Data sources | FastF1 for years through 2022; OpenF1 for 2023 onward |
+| Data sources | FastF1 for 2022; OpenF1 for 2023 onward |
 | HTTP and retries | HTTPX, Tenacity |
 | Storage | SQLite, SQLAlchemy |
 | Feature engineering | pandas, NumPy |
 | Models | Field-choice model (conditional logit, fitted with SciPy); XGBoost kept as an evaluation challenger |
-| Model artifacts and normalization | joblib, SciPy |
 | Live scheduling | APScheduler |
 | Dashboard | Streamlit, Plotly |
 | Tests | pytest |
@@ -46,20 +80,20 @@ python -m pip install -e '.[dev]'
 
 ### Prepare data and models
 
-The local database and downloaded data cache are excluded from Git. Backfill historical sessions to create the database and features:
+The database and download cache are not in Git. Backfill creates them:
 
 ```bash
-python scripts/backfill.py --years 2022 2023 2024
+python scripts/backfill.py --years 2022 2023 2024 2025 2026
 python scripts/check_backfill.py
 ```
 
-Downloads require network access and can take time. To rebuild features separately:
+A full backfill takes a few hours: OpenF1's free tier allows 30 requests a minute and the loader paces itself under that. It is resumable — sessions already stored are skipped, and sessions that have not finished yet are left for a later run. The backfill also loads official race results and driver/team data, then builds features. To rebuild features on their own:
 
 ```bash
 python scripts/build_features.py
 ```
 
-Train both models with 2024 held out for validation:
+Train and evaluate:
 
 ```bash
 python scripts/train.py --model prerace
@@ -67,39 +101,59 @@ python scripts/train.py --model inrace
 python scripts/evaluate.py   # walk-forward: served model vs baselines and an XGBoost challenger
 ```
 
-Model artifacts live in `data/models/`, each with a `.meta.json` recording what it was trained on. `evaluate.py` writes a timestamped report to `data/eval/`. Retrain them in your environment if serialized artifacts are incompatible with installed dependency versions.
+`train.py` fits on every season in the database. Model artifacts live in `data/models/`, each with a `.meta.json` recording the training seasons, fitted coefficients, library versions and code revision.
 
 ### Run the application
 
 Start the prediction pipeline:
 
 ```bash
-python -m f1_prediction.pipeline
+python -m f1_prediction.pipeline                      # follows the race in progress, else the next one
+python -m f1_prediction.pipeline --session-key 9839   # or a specific race
 ```
 
-In a second terminal, activate the environment and launch the dashboard:
+In a second terminal, launch the dashboard:
 
 ```bash
 source .venv/bin/activate
 streamlit run src/f1_prediction/dashboard.py
 ```
 
-The dashboard binds to localhost. The pipeline selects the latest race session in the database, computes pre-race predictions if needed, and polls every 30 seconds. New lap arrivals trigger in-race inference. The dashboard's in-race view refreshes every 15 seconds.
+The pipeline:
 
-Before running against a current race, ingest its available sessions and build its features. Live API availability and access requirements depend on the data provider.
+1. Picks the race from the OpenF1 schedule (falling back to the latest stored race if the schedule is unavailable).
+2. Prepares the weekend — loads finished qualifying, practice and sprint sessions, the starting grid and drivers — and recomputes pre-race predictions every 10 minutes until the start.
+3. Polls OpenF1 every 30 seconds during the race and recomputes in-race predictions when laps arrive or change.
+
+The dashboard binds to localhost, has a race selector in the sidebar, and refreshes its in-race view every 15 seconds. Each race shows a status: **PRE-RACE**, **LIVE**, **STALE** (the race is on but no fresh prediction has arrived for 90 seconds) or **FINISHED** (with the official winner). A past race is never shown as live.
+
+### Live data needs a paid OpenF1 account
+
+OpenF1 serves a session's data for free only from 30 minutes after it ends. During a session (and 30 minutes either side) data requires their sponsor tier. See [docs/provider-capability.md](docs/provider-capability.md).
+
+- **Without an account:** pre-race predictions work on race weekend; in-race predictions fill in about 30 minutes after the flag.
+- **With an account:** set `OPENF1_USERNAME` and `OPENF1_PASSWORD` in the environment before starting the pipeline. This login path is tested only against a mock, never against the real live feed.
 
 ## Models and features
 
-- **Pre-race:** qualifying delta to pole, FP2/FP3 pace, circuit win rate, championship position, grid position, and driver experience.
-- **In-race:** gap to leader, tyre age, pit-stop count, position, intervals ahead/behind, pit-stop delta, lap number, laps remaining, and five tyre-compound indicators.
+Both models are **field-choice models**: each driver gets a score, and the probabilities come from comparing scores across the whole field in one step. They are trained directly on the probability given to the actual winner, so the output is a distribution by construction — there is no class re-weighting, calibration or rescaling step.
 
-Training and inference share feature definitions in `src/f1_prediction/inference/features.py`. Each model predicts a binary winner probability per driver. The application then applies softmax within each race or race/lap group and stores the resulting distribution.
+- **Pre-race (2 inputs):** grid slot, and the driver's average qualifying gap to pole over their previous five races.
+- **In-race (15 inputs):** position, gap to the leader, gap per remaining lap, pit stops made relative to the field, tyre age relative to the field, grid slot and recent qualifying pace — each also weighted by how far through the race it is.
 
-### Current limitations
+Input definitions live in `src/f1_prediction/inference/field_choice.py` and are shared by training and inference.
 
-Softmax is applied to already calibrated probabilities, which compresses the displayed distribution and changes its calibration. A sum of one does not establish predictive accuracy. Training and validation scripts report Brier score and log loss for the raw classifier probabilities separately.
+Things that were tested and left out because they did not help on unseen races: championship position, recent wins and podiums, practice pace, constructor points, sector-time "ultimate lap", sprint results, driver and team Elo ratings, and training on the full finishing order instead of the winner.
 
-Calibration folds are not explicitly grouped by race; race-aware calibration is an area for improvement. Live inference rebuilds the session's in-race features and predicts only the latest available lap, so polling can skip intermediate lap predictions. Historical replay calls inference directly because the live poller checks the actual session time window.
+### Known limitations
+
+- The pre-race model is not yet shown to beat the grid baseline on a clean season (see above).
+- The pre-race grid is the one published after qualifying; late penalties can change it before the start.
+- 2022 gaps to the leader are approximated from lap times (later seasons use lap timestamps), and 2022 grid slots come from lap-1 positions.
+- Six 2023 races have no pit-stop data.
+- During a race the scheduled distance is taken from the circuit's previous race; a new circuit has none, so laps remaining is wrong until the race ends.
+- If more than 60% of the running cars are lapped, the final lap's prediction is not published.
+- Live operation has never been run against a real live feed.
 
 ## Testing and replay
 
@@ -107,7 +161,7 @@ Calibration folds are not explicitly grouped by race; race-aware calibration is 
 pytest -m 'not slow'
 ```
 
-Tests cover ingestion, features, training, prediction storage, polling, and historical replay. Tests marked `slow` can require FastF1 cache/network access.
+Tests cover ingestion, features, the model, training, evaluation scoring, prediction storage, live polling, race selection, dashboard status and historical replay. Tests marked `slow` need FastF1 cache or network access.
 
 For replay options, run:
 
@@ -115,7 +169,7 @@ For replay options, run:
 python scripts/replay_race.py --help
 ```
 
-In-place replay temporarily clears and rebuilds a race's raw rows. Use a scratch database copy with `--db` when experimenting; the normal dashboard continues to use `data/f1.db`.
+In-place replay temporarily clears and rebuilds a race's raw rows. Use a scratch database copy with `--db` when experimenting; it has previously left a race without position data in the working database.
 
 ## Repository layout
 
@@ -124,14 +178,16 @@ src/f1_prediction/
   ingest/          Data clients, loaders, and normalization
   db/              Schema, connections, queries, and inserts
   features/        Historical and lap-level feature computation
-  inference/       Shared feature contracts and prediction storage
+  inference/       Field-choice model, shared inputs, prediction storage
   live/            Polling and session-window checks
-  dashboard_lib/   Dashboard queries and charts
-  pipeline.py      Poll-and-infer orchestration
+  dashboard_lib/   Dashboard queries, charts and status logic
+  pipeline.py      Race selection, weekend preparation, poll-and-infer loop
   dashboard.py     Streamlit application
-scripts/           Backfill, feature building, training, validation, replay
+scripts/           Backfill, feature building, training, evaluation, replay
 tests/             Test suite and sample API fixtures
-data/models/       Serialized models
+data/models/       Serialized models and their metadata
+data/eval/         Timestamped evaluation reports
+docs/              Provider capability report
 ```
 
-Implementation dependencies are declared in `pyproject.toml`. Older planning documents may describe technologies that differ from the implemented stack.
+Dependencies are declared in `pyproject.toml` and pinned in `requirements.lock`. `CLAUDE.md` and older planning documents still describe an earlier planned stack (LightGBM, Dash, FastAPI) that was never the implemented one.

@@ -420,6 +420,15 @@ def compute_grid_position(session_key: int, driver_number: int, conn) -> Optiona
         """
     )
     row = conn.execute(q, {"sk": session_key, "dn": driver_number}).fetchone()
+    if row is None:
+        # before the race there is no position data yet: use the published starting grid
+        row = conn.execute(
+            text(
+                "SELECT position FROM raw_starting_grid "
+                "WHERE session_key = :sk AND driver_number = :dn"
+            ),
+            {"sk": session_key, "dn": driver_number},
+        ).fetchone()
     return int(row[0]) if row is not None else None
 
 
